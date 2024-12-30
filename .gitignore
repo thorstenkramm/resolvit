@@ -1,0 +1,5 @@
+/resolvit
+/my.log
+*.bak
+/testdata/dimedis.txt
+.idea

@@ -1,0 +1,11 @@
+##
+## Records to be resolved by resolvit DNS server
+## Records must consist of name, type and content, separated by white space.
+##
+my.example.com A 127.0.0.99
+cname.example.com CNAME my.example.com
+cname2.example.com CNAME cname.example.com
+google.example.com CNAME google.com
+web.example.com A 192.168.1.1
+*.wildcard.example.com A 192.168.1.2
+*.cnames.example.com CNAME cname2.example.com
