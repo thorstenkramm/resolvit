@@ -1,8 +1,12 @@
 package main
 
 import (
+	"crypto/rand"
+	"fmt"
+	"math/big"
 	"os"
 	"path/filepath"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -34,7 +38,7 @@ web.example.com A 192.168.1.1`)
 	viper.Set("upstream", []string{"1.1.1.1:53"})
 	viper.Set("listen", "127.0.0.1:5300")
 	viper.Set("resolve-from", recordsFile)
-	viper.Set("log-level", "debug")
+	viper.Set("log-level", "error")
 	viper.Set("log-file", "stdout")
 
 	// Start server
@@ -174,5 +178,114 @@ func runTests(t *testing.T, c *dns.Client, tests []struct {
 				}
 			}
 		})
+	}
+}
+
+func TestConcurrentRequests(t *testing.T) {
+	// Setup same test environment as in TestDNSServer
+	tmpDir, err := os.MkdirTemp("", "dns-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	recordsFile := filepath.Join(tmpDir, "records.txt")
+	records := []byte(`
+my.example.com A 127.0.0.99
+test1.example.com A 192.168.1.1
+test2.example.com A 192.168.1.2
+test3.example.com A 192.168.1.3
+`)
+
+	if err := os.WriteFile(recordsFile, records, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Set test configuration
+	viper.Set("upstream", []string{"1.1.1.1:53"})
+	viper.Set("listen", "127.0.0.1:5301") // Different port to avoid conflicts
+	viper.Set("resolve-from", recordsFile)
+	viper.Set("log-level", "error")
+	viper.Set("log-file", "stdout")
+
+	// Start server
+	go main()
+	time.Sleep(1 * time.Second)
+
+	// Test concurrent requests
+	concurrentTests := []struct {
+		domain      string
+		queryType   uint16
+		wantType    uint16
+		wantContent string
+	}{
+		{"my.example.com.", dns.TypeA, dns.TypeA, "127.0.0.99"},
+		{"test1.example.com.", dns.TypeA, dns.TypeA, "192.168.1.1"},
+		{"test2.example.com.", dns.TypeA, dns.TypeA, "192.168.1.2"},
+		{"test3.example.com.", dns.TypeA, dns.TypeA, "192.168.1.3"},
+		{"google.com.", dns.TypeA, dns.TypeA, ""}, // Will be forwarded
+	}
+
+	workers := 100
+	requestsPerWorker := 200
+	var wg sync.WaitGroup
+	errorsChan := make(chan error, workers*requestsPerWorker)
+
+	// Create DNS client pool to avoid sharing clients between goroutines
+	clientPool := sync.Pool{
+		New: func() interface{} {
+			return new(dns.Client)
+		},
+	}
+
+	for w := 0; w < workers; w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+
+			// Get client from pool
+			c := clientPool.Get().(*dns.Client)
+			defer clientPool.Put(c)
+
+			for i := 0; i < requestsPerWorker; i++ {
+				randNum, err := rand.Int(rand.Reader, big.NewInt(int64(len(concurrentTests))))
+				if err != nil {
+					errorsChan <- fmt.Errorf("failed to generate random number: %w", err)
+					continue
+				}
+				test := concurrentTests[randNum.Int64()]
+
+				m := new(dns.Msg)
+				m.SetQuestion(test.domain, test.queryType)
+
+				r, _, err := c.Exchange(m, "127.0.0.1:5301")
+				if err != nil {
+					errorsChan <- fmt.Errorf("query failed for %s: %w", test.domain, err)
+					continue
+				}
+
+				if r.Rcode != dns.RcodeSuccess {
+					errorsChan <- fmt.Errorf("query failed for %s with rcode %d", test.domain, r.Rcode)
+					continue
+				}
+
+				if len(r.Answer) == 0 && test.wantContent != "" {
+					errorsChan <- fmt.Errorf("no answer section in response for %s", test.domain)
+				}
+			}
+		}()
+	}
+
+	wg.Wait()
+	close(errorsChan)
+
+	var errCount int
+	for err := range errorsChan {
+		t.Errorf("concurrent test error: %v", err)
+		errCount++
+	}
+
+	if errCount > 0 {
+		t.Fatalf("got %d errors during concurrent testing", errCount)
 	}
 }

@@ -4,58 +4,94 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
 func TestLoadFromFile(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(os.Stdout, nil))
 
-	// Create temp file with test records
-	content := []string{
-		"# Test DNS records",
-		"www.google.de A 127.0.0.99",
-		"www.google.com    CNAME     cname.sys25.net",
-		"www.google.fr	CNAME	www.google.com",
-		"www.pupes.de      A    10.10.10.1",
-		"www.gaga.de         CNAME       eselsel.de",
-	}
-
+	// Create temp test directory
 	tmpDir := t.TempDir()
-	tmpFile := filepath.Join(tmpDir, "test_records.txt")
-	if err := os.WriteFile(tmpFile, []byte(strings.Join(content, "\n")), 0600); err != nil {
-		t.Fatalf("Failed to create test file: %v", err)
+	recordsFile := filepath.Join(tmpDir, "records.txt")
+
+	// Test records content
+	content := []byte(`
+test1.example.com A 192.168.1.1
+test2.example.com CNAME test1.example.com
+*.example.com A 192.168.1.100
+`)
+
+	if err := os.WriteFile(recordsFile, content, 0600); err != nil {
+		t.Fatal(err)
 	}
 
-	err := LoadFromFile(tmpFile, log)
-	if err != nil {
-		t.Fatalf("Failed to load records: %v", err)
+	if err := LoadFromFile(recordsFile, log); err != nil {
+		t.Fatal(err)
 	}
 
-	testCases := []struct {
-		name          string
-		expectedType  string
-		expectedValue string
+	t.Logf("Having %d records", len(GetAll()))
+	t.Logf("Records %s", GetAll())
+	if len(GetAll()) != 3 {
+		t.Fatal("Expected 3 records")
+	}
+
+	tests := []struct {
+		name     string
+		domain   string
+		wantType string
+		wantIP   string
+		wantOK   bool
 	}{
-		{"www.google.de.", "a", "127.0.0.99"},
-		{"www.google.com.", "cname", "cname.sys25.net"},
-		{"www.google.fr.", "cname", "www.google.com"},
-		{"www.pupes.de.", "a", "10.10.10.1"},
-		{"www.gaga.de.", "cname", "eselsel.de"},
+		{
+			name:     "A record",
+			domain:   "test1.example.com.",
+			wantType: A,
+			wantIP:   "192.168.1.1",
+			wantOK:   true,
+		},
+		{
+			name:     "CNAME record",
+			domain:   "test2.example.com.",
+			wantType: CNAME,
+			wantIP:   "test1.example.com",
+			wantOK:   true,
+		},
+		{
+			name:     "Wildcard record",
+			domain:   "any.example.com.",
+			wantType: A,
+			wantIP:   "192.168.1.100",
+			wantOK:   true,
+		},
+		{
+			name:   "Non-existent record",
+			domain: "notfound.example.com",
+			wantOK: false,
+		},
 	}
 
-	for _, tc := range testCases {
-		record := Get(tc.name)
-		if record == nil {
-			t.Errorf("Record not found for %s", tc.name)
-			continue
-		}
-		if record.Typ != tc.expectedType {
-			t.Errorf("Wrong type for %s: got %s, want %s", tc.name, record.Typ, tc.expectedType)
-		}
-		if record.Content != tc.expectedValue {
-			t.Errorf("Wrong content for %s: got %s, want %s", tc.name, record.Content, tc.expectedValue)
-		}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			record := Get(tt.domain)
+			if !tt.wantOK {
+				if record != nil {
+					t.Error("expected no record, got one")
+				}
+				return
+			}
+
+			if record == nil {
+				t.Fatalf("expected record %s, got nil", tt.domain)
+			}
+
+			if record.Typ != tt.wantType {
+				t.Errorf("got type %s, want %s", record.Typ, tt.wantType)
+			}
+
+			if record.Content != tt.wantIP {
+				t.Errorf("got content %s, want %s", record.Content, tt.wantIP)
+			}
+		})
 	}
 }
 

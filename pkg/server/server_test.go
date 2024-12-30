@@ -1,99 +1,74 @@
 package server
 
 import (
-	"context"
-	"fmt"
+	"io"
 	"log/slog"
-	"net"
 	"testing"
 	"time"
-
-	"github.com/miekg/dns"
 )
 
-func getAvailablePort() (int, error) {
-	addr, err := net.ResolveTCPAddr("tcp", "localhost:0")
-	if err != nil {
-		return 0, err
-	}
-
-	l, err := net.ListenTCP("tcp", addr)
-	if err != nil {
-		return 0, err
-	}
-	defer l.Close()
-	return l.Addr().(*net.TCPAddr).Port, nil
-}
-
-func TestServer(t *testing.T) {
-	port, err := getAvailablePort()
-	if err != nil {
-		t.Fatalf("Failed to get available port: %v", err)
-	}
-	addr := fmt.Sprintf("127.0.0.1:%d", port)
-
-	logger := slog.Default()
-	srv := New(addr, []string{"8.8.8.8:53"}, logger)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel() // This ensures context cancellation even if test fails
-
-	if err := srv.Start(ctx); err != nil {
-		t.Fatalf("Failed to start server: %v", err)
-	}
-
-	// Run tests...
-	runDNSTests(t, addr)
-
-	// Proper shutdown sequence
-	cancel() // First cancel context to stop workers
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), time.Second)
-	defer shutdownCancel()
-
-	if err := srv.Shutdown(shutdownCtx); err != nil {
-		t.Errorf("Server shutdown failed: %v", err)
-	}
-}
-
-func runDNSTests(t *testing.T, addr string) {
-	t.Helper()
-	// Wait for server to start
-	time.Sleep(100 * time.Millisecond)
-
-	// Test DNS queries
+func TestNewServer(t *testing.T) {
 	tests := []struct {
-		name     string
-		query    string
-		qtype    uint16
-		wantResp bool
+		name      string
+		addr      string
+		upstreams []string
 	}{
 		{
-			name:     "Valid A query",
-			query:    "example.com.",
-			qtype:    dns.TypeA,
-			wantResp: true,
+			name:      "valid server configuration",
+			addr:      "127.0.0.1:5353",
+			upstreams: []string{"8.8.8.8:53", "8.8.4.4:53"},
 		},
 		{
-			name:     "Valid CNAME query",
-			query:    "www.example.com.",
-			qtype:    dns.TypeCNAME,
-			wantResp: true,
+			name:      "server with single upstream",
+			addr:      "127.0.0.1:5354",
+			upstreams: []string{"1.1.1.1:53"},
 		},
 	}
 
-	c := new(dns.Client)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			m := new(dns.Msg)
-			m.SetQuestion(tt.query, tt.qtype)
+			logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+			srv := New(tt.addr, tt.upstreams, logger)
 
-			r, _, err := c.Exchange(m, addr)
-			if err != nil {
-				t.Errorf("DNS query failed: %v", err)
+			if srv == nil {
+				t.Fatal("expected non-nil server")
 			}
-			if (r != nil) != tt.wantResp {
-				t.Errorf("Got response %v, want %v", r != nil, tt.wantResp)
+
+			if srv.server.Addr != tt.addr {
+				t.Errorf("expected address %s, got %s", tt.addr, srv.server.Addr)
+			}
+
+			if srv.server.Net != "udp" {
+				t.Errorf("expected UDP network, got %s", srv.server.Net)
+			}
+
+			if srv.cache == nil {
+				t.Error("expected non-nil cache")
+			}
+
+			if srv.forwarder == nil {
+				t.Error("expected non-nil forwarder")
 			}
 		})
+	}
+}
+
+func TestServerStart(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	srv := New("127.0.0.1:5355", []string{"8.8.8.8:53"}, logger)
+
+	errChan := make(chan error)
+	go func() {
+		errChan <- srv.Start()
+	}()
+
+	// Give the server time to start
+	time.Sleep(100 * time.Millisecond)
+
+	select {
+	case err := <-errChan:
+		t.Fatalf("server failed to start: %v", err)
+	default:
+		// Server started successfully
 	}
 }

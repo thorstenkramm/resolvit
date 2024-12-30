@@ -93,3 +93,14 @@ Enable and start the service:
 
     systemctl enable resolvit
     systemctl start resolvit
+
+## Compile from sources
+
+For local testing:
+
+    VERSION=$(date +%Y.%m%d.%H%M%S)
+    go build -ldflags "-X resolvit/pkg/version.ResolvitVersion=$VERSION" -o resolvit
+
+For a release build with version and optimization flags:
+
+    go build -ldflags "-s -w -X resolvit/pkg/version.ResolvitVersion=<VERSION>" -o resolvit

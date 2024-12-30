@@ -5,11 +5,7 @@ import (
 	"log/slog"
 	"os"
 	"strings"
-)
-
-const (
-	A     = "a"
-	CNAME = "cname"
+	"sync"
 )
 
 type Record struct {
@@ -17,15 +13,65 @@ type Record struct {
 	Content string
 }
 
-var records = map[string]Record{}
+var (
+	records = make(map[string]Record)
+	mu      sync.RWMutex
+)
+
+const (
+	CNAME = "cname"
+	A     = "a"
+)
+
+func Get(name string) *Record {
+	mu.RLock()
+	defer mu.RUnlock()
+
+	if record, ok := records[name]; ok {
+		return &record
+	}
+
+	// Try wildcard match
+	parts := strings.Split(name, ".")
+	if len(parts) > 2 {
+		wildcardName := "*." + strings.Join(parts[1:], ".")
+		if record, ok := records[wildcardName]; ok {
+			return &record
+		}
+	}
+
+	return nil
+}
+
+func GetAll() map[string]Record {
+	mu.RLock()
+	defer mu.RUnlock()
+
+	return records
+}
+
+func Add(name string, typ string, content string) {
+	mu.Lock()
+	defer mu.Unlock()
+
+	records[name] = Record{
+		Typ:     strings.ToLower(typ),
+		Content: content,
+	}
+}
 
 func LoadFromFile(filename string, log *slog.Logger) error {
+	mu.Lock()
+	defer mu.Unlock()
+
 	file, err := os.Open(filename)
 	if err != nil {
-		log.Error("Failed to open file", "filename", filename, "error", err)
 		return err
 	}
 	defer file.Close()
+
+	// Clear existing records
+	records = make(map[string]Record)
 
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
@@ -36,7 +82,7 @@ func LoadFromFile(filename string, log *slog.Logger) error {
 
 		fields := strings.Fields(line)
 		if len(fields) != 3 {
-			log.Warn("Skipping invalid line", "line", line)
+			log.Warn("Invalid record format", "line", line)
 			continue
 		}
 
@@ -45,42 +91,11 @@ func LoadFromFile(filename string, log *slog.Logger) error {
 			name = name + "."
 		}
 
-		Add(name, fields[1], fields[2])
-		log.Debug("Added record", "name", name, "type", fields[1], "content", fields[2])
-	}
-
-	if err := scanner.Err(); err != nil {
-		log.Error("Error scanning file", "filename", filename, "error", err)
-		return err
-	}
-
-	log.Info("Successfully loaded records from file", "filename", filename, "numRecords", len(records))
-	return nil
-}
-func Get(name string) *Record {
-	// Try exact match first
-	if value, ok := records[name]; ok {
-		return &value
-	}
-	// If no exact match found, try wildcard
-	parts := strings.Split(name, ".")
-	if len(parts) > 2 {
-		// Replace first part with wildcard
-		wildcardName := "*." + strings.Join(parts[1:], ".")
-		if value, ok := records[wildcardName]; ok {
-			return &value
+		records[name] = Record{
+			Typ:     strings.ToLower(fields[1]),
+			Content: fields[2],
 		}
 	}
-	return nil
-}
 
-func GetAll() map[string]Record {
-	return records
-}
-
-func Add(name string, typ string, content string) {
-	records[name] = Record{
-		Typ:     strings.ToLower(typ),
-		Content: content,
-	}
+	return scanner.Err()
 }

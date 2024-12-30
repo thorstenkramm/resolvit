@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"resolvit/pkg/version"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -101,6 +102,7 @@ while forwarding all other requests to upstream DNS servers.`,
 	rootCmd.PersistentFlags().String("resolve-from", "", "File containing DNS records to resolve locally")
 	rootCmd.PersistentFlags().String("log-level", "info", "Log level (debug, info, warn, error)")
 	rootCmd.PersistentFlags().String("log-file", "stdout", "Log file path (stdout for console)")
+	rootCmd.PersistentFlags().Bool("version", false, "Print version and exit")
 
 	err := viper.BindPFlags(rootCmd.PersistentFlags())
 	if err != nil {
@@ -109,6 +111,11 @@ while forwarding all other requests to upstream DNS servers.`,
 
 	if err := rootCmd.Execute(); err != nil {
 		return nil, err
+	}
+
+	if viper.GetBool("version") {
+		fmt.Printf("resolvit version %s\n", version.ResolvitVersion)
+		os.Exit(0)
 	}
 
 	upstreams := viper.GetStringSlice("upstream")

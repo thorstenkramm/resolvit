@@ -1,7 +1,9 @@
 package main
 
 import (
-	"context"
+	"fmt"
+	log2 "log"
+	"log/slog"
 	"os"
 	"os/signal"
 	"resolvit/pkg/config"
@@ -9,64 +11,59 @@ import (
 	"resolvit/pkg/records"
 	"resolvit/pkg/server"
 	"syscall"
-	"time"
 )
 
 func main() {
+	if err := run(); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func loadRecords(recordsPath string, log *slog.Logger) error {
+	if recordsPath == "" {
+		return nil
+	}
+	return records.LoadFromFile(recordsPath, log)
+}
+
+func run() error {
 	cfg, err := config.Setup()
 	if err != nil {
-		os.Exit(1)
+		return fmt.Errorf("setup config: %w", err)
 	}
 
 	log := logger.Setup(cfg.LogLevel, cfg.LogFile)
 
-	if cfg.ResolveFrom != "" {
-		if err := records.LoadFromFile(cfg.ResolveFrom, log); err != nil {
-			log.Error("failed to load records file", "error", err)
-			os.Exit(1)
+	if err := loadRecords(cfg.ResolveFrom, log); err != nil {
+		return fmt.Errorf("load records: %w", err)
+	}
+
+	go func() {
+		srv := server.New(cfg.Listen, cfg.Upstreams, log)
+		if err := srv.Start(); err != nil {
+			log2.Fatalf("start server: %s", err)
 		}
-	}
+	}()
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	srv := server.New(cfg.Listen, cfg.Upstreams, log)
-	if err := srv.Start(ctx); err != nil {
-		log.Error("failed to start server", "error", err)
-		os.Exit(1)
-	}
-
-	// Set up signal handling
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
-
+	sig := make(chan os.Signal)
+	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
 	for {
-		sig := <-sigChan
-		switch sig {
+		s := <-sig
+		switch s {
+		case syscall.SIGINT:
+			log2.Printf("receive SIGINT, shutting down")
+			os.Exit(0)
 		case syscall.SIGHUP:
-			log.Info("received SIGHUP signal, reloading local records")
-			if cfg.ResolveFrom != "" {
-				if err := records.LoadFromFile(cfg.ResolveFrom, log); err != nil {
-					log.Error("failed to reload records file", "error", err)
-				} else {
-					log.Info("successfully reloaded local records")
-				}
+			log2.Printf("receive SIGHUP, reloading records")
+			if err := loadRecords(cfg.ResolveFrom, log); err != nil {
+				log2.Printf("failed to reload records: %v", err)
+			} else {
+				log2.Printf("records reloaded successfully")
 			}
-		case syscall.SIGINT, syscall.SIGTERM:
-			log.Info("received shutdown signal", "signal", sig)
-
-			// First cancel the context to stop workers
-			cancel()
-
-			// Then shutdown the server
-			shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer shutdownCancel()
-
-			if err := srv.Shutdown(shutdownCtx); err != nil {
-				log.Error("shutdown failed", "error", err)
-				os.Exit(1)
-			}
-			return
+			continue
+		default:
+			log2.Fatalf("Signal (%v) received, stopping\n", s)
 		}
 	}
 }
