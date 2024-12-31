@@ -5,10 +5,10 @@ before:
   hooks:
     - go mod tidy
 builds:
-  - id: httpe
-    binary: httpe
+  - id: resolvit
+    binary: resolvit
     ldflags:
-      - "-X {{.Env.PROJECT}}/pkg/version.ResolvitVersion={{.Version}}"
+      - "-X resolvit/pkg/version.ResolvitVersion={{.Version}}"
       - "-s -w"
     env:
       - CGO_ENABLED=0
@@ -29,7 +29,7 @@ builds:
 archives:
   - id: resolvit
     name_template: >-
-      httpe_{{ .Version }}_{{ .Os|title }}_
+      resolvit_{{ .Version }}_{{ .Os|title }}_
       {{- if eq .Arch "amd64" }}x86_64
       {{- else if eq .Arch "386" }}i386
       {{- else }}{{ .Arch }}{{ end }}
