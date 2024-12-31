@@ -3,6 +3,7 @@ package records
 import (
 	"bufio"
 	"log/slog"
+	"net"
 	"os"
 	"strings"
 	"sync"
@@ -27,6 +28,7 @@ func Get(name string) *Record {
 	mu.RLock()
 	defer mu.RUnlock()
 
+	name = strings.ToLower(name)
 	if record, ok := records[name]; ok {
 		return &record
 	}
@@ -86,14 +88,28 @@ func LoadFromFile(filename string, log *slog.Logger) error {
 			continue
 		}
 
-		name := fields[0]
+		name := strings.ToLower(fields[0])
 		if !strings.HasSuffix(name, ".") {
 			name = name + "."
 		}
 
+		typ := strings.ToLower(fields[1])
+		if typ != CNAME && typ != A {
+			log.Warn("Invalid record type", "type", typ, "line", line)
+			continue
+		}
+
+		content := strings.ToLower(fields[2])
+		if typ == A {
+			if ok := net.ParseIP(content); ok == nil {
+				log.Warn("Invalid ipv4 address for record content", "content", content, "line", line)
+				continue
+			}
+		}
+
 		records[name] = Record{
-			Typ:     strings.ToLower(fields[1]),
-			Content: fields[2],
+			Typ:     typ,
+			Content: content,
 		}
 	}
 

@@ -16,9 +16,12 @@ func TestLoadFromFile(t *testing.T) {
 
 	// Test records content
 	content := []byte(`
+# This is a comment
 test1.example.com A 192.168.1.1
-test2.example.com CNAME test1.example.com
-*.example.com A 192.168.1.100
+test2.exAmple.com CNAME test1.example.com
+*.Example.com A 192.168.1.100
+test.example.com AAAA 192.168.1.100
+test.example.com A 192.168.1.300
 `)
 
 	if err := os.WriteFile(recordsFile, content, 0600); err != nil {
@@ -44,21 +47,21 @@ test2.example.com CNAME test1.example.com
 	}{
 		{
 			name:     "A record",
-			domain:   "test1.example.com.",
+			domain:   "test1.example.Com.",
 			wantType: A,
 			wantIP:   "192.168.1.1",
 			wantOK:   true,
 		},
 		{
 			name:     "CNAME record",
-			domain:   "test2.example.com.",
+			domain:   "Test2.example.Com.",
 			wantType: CNAME,
 			wantIP:   "test1.example.com",
 			wantOK:   true,
 		},
 		{
 			name:     "Wildcard record",
-			domain:   "any.example.com.",
+			domain:   "Any.example.COM.",
 			wantType: A,
 			wantIP:   "192.168.1.100",
 			wantOK:   true,
