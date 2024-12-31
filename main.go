@@ -50,8 +50,8 @@ func run() error {
 	for {
 		s := <-sig
 		switch s {
-		case syscall.SIGINT:
-			log.Info("receive SIGINT, shutting down")
+		case syscall.SIGINT, syscall.SIGTERM:
+			log.Info("shutting down")
 			os.Exit(0)
 		case syscall.SIGHUP:
 			log.Info("receive SIGHUP, reloading records")
@@ -62,7 +62,8 @@ func run() error {
 			}
 			continue
 		default:
-			log.Error("Signal received, stopping", "signal", s)
+			log.Error("Unknown signal received, stopping", "signal", s)
+			os.Exit(1)
 		}
 	}
 }

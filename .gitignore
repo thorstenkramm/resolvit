@@ -3,3 +3,4 @@
 *.bak
 /testdata/dimedis.txt
 .idea
+dist/
