@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	log2 "log"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -15,7 +14,7 @@ import (
 
 func main() {
 	if err := run(); err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		fmt.Printf("error: %v\n", err)
 		os.Exit(1)
 	}
 }
@@ -42,28 +41,28 @@ func run() error {
 	go func() {
 		srv := server.New(cfg.Listen, cfg.Upstreams, log)
 		if err := srv.Start(); err != nil {
-			log2.Fatalf("start server: %s", err)
+			log.Error("failed to start server", "error", err)
 		}
 	}()
 
-	sig := make(chan os.Signal)
+	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
 	for {
 		s := <-sig
 		switch s {
 		case syscall.SIGINT:
-			log2.Printf("receive SIGINT, shutting down")
+			log.Info("receive SIGINT, shutting down")
 			os.Exit(0)
 		case syscall.SIGHUP:
-			log2.Printf("receive SIGHUP, reloading records")
+			log.Info("receive SIGHUP, reloading records")
 			if err := loadRecords(cfg.ResolveFrom, log); err != nil {
-				log2.Printf("failed to reload records: %v", err)
+				log.Error("failed to reload records:", "error", err)
 			} else {
-				log2.Printf("records reloaded successfully")
+				log.Info("records reloaded successfully")
 			}
 			continue
 		default:
-			log2.Fatalf("Signal (%v) received, stopping\n", s)
+			log.Error("Signal received, stopping", "signal", s)
 		}
 	}
 }
