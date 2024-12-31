@@ -1,7 +1,10 @@
 # resolvit
 
-A DNS server that allows you to resolve specific DNS records locally while forwarding all other
-requests to upstream DNS servers.
+A DNS Server that allows you to resolve specific DNS records locally while forwarding all other
+requests to upstream DNS Servers.
+
+It's main use-case is to act as a local forwarder on your intranet with the ability to resolve
+some records locally.
 
 ## Features
 
@@ -9,28 +12,35 @@ requests to upstream DNS servers.
 - No need to create zones
 - DNS forwarding to upstream servers
 - DNS response caching
-- Configurable via command line flags
+- Configurable via command-line flags
 - Supports wildcards for A and CNAME records
 
 Local records are read to memory on service start. Changes to the records file require
-a service restart.
+a service reload.
 
 Records remain in the cache according to the TTL given by the upstream server.  
-The cache is in memory. It gets lost on service restart.
+The cache is in-memory. It gets lost on service restart.
+
+## Warnings
+
+resolvit is not an RFC compliant DNS Server. Do not use on the public internet. 
+
+The following features are not supported:
+ - DNSsec
+ - local resolving of AAAA, TXT, MX, SOA records
+ - Zone transfers
 
 ## Usage
 
-Start the DNS server:
+Start the DNS Server:
 
-```bash
-resolvit --listen 127.0.0.1:5300 --upstream 8.8.8.8
-```
+    resolvit --listen 127.0.0.1:5300 --upstream 8.8.8.8
 
 Configuration Options:
 
 ```
---listen: Listen address for DNS server (default "127.0.0.1:5300")
---upstream: Upstream DNS server (can specify multiple, default "9.9.9.9:53")
+--listen: Listen address for DNS Server (default "127.0.0.1:5300")
+--upstream: Upstream DNS Server (can specify multiple, default "9.9.9.9:53")
 --resolve-from: File containing DNS records to resolve locally
 --log-level: Log level (debug, info, warn, error) (default "info")
 --log-file: Log file path (stdout for console) (default "stdout")
@@ -47,10 +57,12 @@ Example:
     my.example.com A 127.0.0.99
     cname.example.com CNAME my.example.com
 
+Invalid lines are ignored. On loading the records resolvit will log a warning but continues starting. 
+
 ## Limitations
 
 Only A and CNAME records are supported for local resolution
-All other record types are forwarded to upstream DNS servers
+All other record types are forwarded to upstream DNS Servers
 
 ## Example Usage
 
@@ -61,7 +73,7 @@ Create a records file:
 
 Start the server with local records:
 
-    overridedns --listen 127.0.0.1:5300 --upstream 8.8.8.8:53 --resolve-from records.txt
+    resolvit --listen 127.0.0.1:5300 --upstream 8.8.8.8:53 --resolve-from records.txt
 
 Test DNS resolution:
 
@@ -78,16 +90,25 @@ Description=Resolvit DNS Server
 After=network.target
 
 [Service]
+EnvironmentFile=/etc/default/resolvit
+Environment="LOG_LEVEL=info"
 Type=simple
-ExecStart=/usr/local/bin/resolvit --listen 127.0.0.1:5300 --upstream 8.8.8.8:53 --resolve-from /etc/overridedns/records.txt
+ExecStart=/usr/local/bin/resolvit \
+  --listen 127.0.0.1:5300 \
+  --upstream 8.8.8.8:53 \
+  --log-level $LOG_LEVEL \
+  --resolve-from /var/lib/resolvit/records.txt
 ExecReload=/bin/kill -HUP $MAINPID
 Restart=on-failure
 User=resolvit
 Group=resolvit
+AmbientCapabilities=CAP_NET_BIND_SERVICE
 
 [Install]
 WantedBy=multi-user.target
 ```
+
+Consider replacing values by variables read from the specified environment file.
 
 Enable and start the service:
 
@@ -104,3 +125,19 @@ For local testing:
 For a release build with version and optimization flags:
 
     go build -ldflags "-s -w -X resolvit/pkg/version.ResolvitVersion=<VERSION>" -o resolvit
+
+## Testing
+
+All parts are covered by go unit tests. Run them with:
+
+    go test -race ./...
+
+Additionally, a python based stress test command-line utility `./dns-stress.py` is included.
+Python 3.7+ and `dnspython` is required. Use `./dns-stress.py --help`.  
+Example usage:
+
+    ./dns-stress.py --server 10.248.157.10 \
+    --query "%RAND%.test.example.com" \
+    --expect-content 10.111.1.154 \
+    --num-requests 500000 \
+    --concurrency 500
