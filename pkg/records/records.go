@@ -113,5 +113,7 @@ func LoadFromFile(filename string, log *slog.Logger) error {
 		}
 	}
 
+	log.Info("Loaded records", "from_file", filename, "num_records", len(records))
+
 	return scanner.Err()
 }
