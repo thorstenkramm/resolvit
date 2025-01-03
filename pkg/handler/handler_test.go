@@ -19,7 +19,7 @@ func TestHandleDNSRequest(t *testing.T) {
 	records.Add("*.wildcardalias.example.com.", records.CNAME, "local.example.com")
 	records.Add("cname1.example.com.", records.CNAME, "cname2.example.com")
 	records.Add("cname2.example.com.", records.CNAME, "cname3.example.com")
-	records.Add("cname3.example.com.", records.CNAME, "cname.sys25.net")
+	records.Add("cname3.example.com.", records.CNAME, "cname-localhost.sys25.net")
 
 	t.Logf("Having %d local record(s)", len(records.GetAll()))
 
@@ -79,9 +79,9 @@ func TestHandleDNSRequest(t *testing.T) {
 		},
 		{
 			name:       "Remote CNAME record",
-			query:      "cname.sys25.net.",
+			query:      "cname-localhost.sys25.net.",
 			wantType:   dns.TypeCNAME,
-			wantTarget: "85.197.41.172",
+			wantTarget: "127.0.0.1",
 			wantCache:  true,
 			wantAuth:   false,
 			wantRA:     true,
@@ -90,14 +90,14 @@ func TestHandleDNSRequest(t *testing.T) {
 			name:       "Nested CNAME records",
 			query:      "cname1.example.com.",
 			wantType:   dns.TypeCNAME,
-			wantTarget: "85.197.41.172",
+			wantTarget: "127.0.0.1",
 			wantRA:     true,
 		},
 		{
 			name:       "Local CNAME with external target",
 			query:      "cname3.example.com.",
 			wantType:   dns.TypeCNAME,
-			wantTarget: "85.197.41.172",
+			wantTarget: "127.0.0.1",
 			wantRA:     true,
 		},
 		{
