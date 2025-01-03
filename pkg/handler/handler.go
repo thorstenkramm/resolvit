@@ -11,7 +11,10 @@ import (
 	"github.com/miekg/dns"
 )
 
-const DefaultTTL = 600
+const (
+	DefaultTTL = 600
+	MaxMsgSize = 512
+)
 
 type Handler struct {
 	cache     *dnscache.DNSCache
@@ -173,6 +176,19 @@ func (h *Handler) handleA(rs *requestState, r *dns.Msg, rec *records.Record) *dn
 }
 
 func (h *Handler) writeResponse(rs *requestState, msg *dns.Msg) {
+	if len(msg.Answer) > 0 {
+		msgSize := msg.Len()
+		if msgSize > MaxMsgSize {
+			msg.Truncated = true
+			h.log.Debug("message too large", "size", msgSize, "max", MaxMsgSize)
+			// Keep only as many records as fit within the buffer
+			for msgSize > MaxMsgSize && len(msg.Answer) > 0 {
+				msg.Answer = msg.Answer[:len(msg.Answer)-1]
+				msgSize = msg.Len()
+			}
+		}
+	}
+
 	if err := rs.w.WriteMsg(msg); err != nil {
 		h.log.Error("failed to write response", "name", rs.queryName, "error", err)
 	}

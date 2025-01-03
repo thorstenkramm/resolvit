@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"fmt"
 	"net"
 	"resolvit/pkg/dnscache"
 	"resolvit/pkg/forward"
@@ -174,6 +175,55 @@ func TestHandleDNSRequest(t *testing.T) {
 				t.Errorf("Got RecursionAvailable=%v, want %v", w.msg.RecursionAvailable, true)
 			}
 		})
+	}
+}
+
+func TestMessageTruncation(t *testing.T) {
+	// Add final A record target
+	records.Add("final.example.com.", records.A, "192.168.1.10")
+
+	// Create a long chain of CNAME records
+	for i := 0; i < 10; i++ {
+		records.Add(
+			fmt.Sprintf("cname%d.example.com.", i),
+			records.CNAME,
+			fmt.Sprintf("cname%d.example.com", i+1),
+		)
+	}
+	// Final CNAME points to our local A record
+	records.Add("cname11.example.com.", records.CNAME, "final.example.com")
+
+	logger := logger.Setup("debug", "stdout")
+	cache := dnscache.New(logger)
+	forwarder := forward.New([]string{"8.8.8.8:53"}, logger)
+	h := New(cache, forwarder, "127.0.0.1:5300", logger)
+
+	req := new(dns.Msg)
+	req.SetQuestion("cname0.example.com.", dns.TypeA)
+	req.RecursionDesired = true
+
+	w := &testResponseWriter{}
+	h.HandleDNSRequest(w, req)
+
+	if w.msg == nil {
+		t.Fatal("No response message received")
+	}
+
+	// Verify truncation bit is set
+	if !w.msg.Truncated {
+		t.Error("Expected message to be truncated")
+	}
+
+	// Verify message size is within limits
+	if w.msg.Len() > dns.DefaultMsgSize {
+		t.Errorf("Message size %d exceeds default size %d", w.msg.Len(), dns.DefaultMsgSize)
+	}
+
+	t.Logf("Response contains %d answers", len(w.msg.Answer))
+	t.Logf("Message size: %d bytes", w.msg.Len())
+
+	for i, a := range w.msg.Answer {
+		t.Logf("Got answer %d: %s", i, a.String())
 	}
 }
 

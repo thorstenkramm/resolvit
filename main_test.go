@@ -46,7 +46,6 @@ web.example.com A 192.168.1.1`)
 	time.Sleep(1 * time.Second)
 
 	// Test initial records
-	c := new(dns.Client)
 	tests := []struct {
 		name        string
 		domain      string
@@ -79,7 +78,23 @@ web.example.com A 192.168.1.1`)
 		},
 	}
 
-	runTests(t, c, tests)
+	//runTests(t, c, tests)
+	// Create both UDP and TCP clients
+	udpClient := new(dns.Client)
+	tcpClient := &dns.Client{Net: "tcp"}
+
+	// Run tests with both UDP and TCP
+	clients := map[string]*dns.Client{
+		"UDP": udpClient,
+		"TCP": tcpClient,
+	}
+
+	for protocol, c := range clients {
+		t.Run(protocol, func(t *testing.T) {
+			// Run existing tests with current client
+			runTests(t, c, tests)
+		})
+	}
 
 	// Update records file with new content
 	newRecords := []byte(`*.example.com A 192.168.1.100
@@ -126,7 +141,12 @@ new.example.com CNAME test.example.com`)
 		},
 	}
 
-	runTests(t, c, reloadTests)
+	// Run reload tests with both protocols
+	for protocol, c := range clients {
+		t.Run("Reload_"+protocol, func(t *testing.T) {
+			runTests(t, c, reloadTests)
+		})
+	}
 }
 
 func runTests(t *testing.T, c *dns.Client, tests []struct {
