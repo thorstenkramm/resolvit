@@ -38,8 +38,8 @@ func run() error {
 		return fmt.Errorf("load records: %w", err)
 	}
 
+	srv := server.New(cfg.Listen, cfg.Upstreams, log)
 	go func() {
-		srv := server.New(cfg.Listen, cfg.Upstreams, log)
 		if err := srv.Start(); err != nil {
 			log.Error("failed to start server", "error", err)
 		}
@@ -58,6 +58,7 @@ func run() error {
 			if err := loadRecords(cfg.ResolveFrom, log); err != nil {
 				log.Error("failed to reload records:", "error", err)
 			} else {
+				srv.ClearCache()
 				log.Info("records reloaded successfully")
 			}
 			continue

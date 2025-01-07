@@ -19,6 +19,7 @@ func TestLoadFromFile(t *testing.T) {
 # This is a comment
 test1.example.com A 192.168.1.1
 test2.exAmple.com CNAME test1.example.com
+a.b.c.example.com A 192.168.1.2
 *.Example.com A 192.168.1.100
 test.example.com AAAA 192.168.1.100
 test.example.com A 192.168.1.300
@@ -34,7 +35,7 @@ test.example.com A 192.168.1.300
 
 	t.Logf("Having %d records", len(GetAll()))
 	t.Logf("Records %s", GetAll())
-	if len(GetAll()) != 3 {
+	if len(GetAll()) != 4 {
 		t.Fatal("Expected 3 records")
 	}
 
@@ -64,6 +65,27 @@ test.example.com A 192.168.1.300
 			domain:   "Any.example.COM.",
 			wantType: A,
 			wantIP:   "192.168.1.100",
+			wantOK:   true,
+		},
+		{
+			name:     "Double Wildcard record",
+			domain:   "Any.Any.example.COM.",
+			wantType: A,
+			wantIP:   "192.168.1.100",
+			wantOK:   true,
+		},
+		{
+			name:     "Triple Wildcard record",
+			domain:   "Any.Any.Any.example.COM.",
+			wantType: A,
+			wantIP:   "192.168.1.100",
+			wantOK:   true,
+		},
+		{
+			name:     "Exact match within wildcard record range",
+			domain:   "a.b.c.example.com.",
+			wantType: A,
+			wantIP:   "192.168.1.2",
 			wantOK:   true,
 		},
 		{

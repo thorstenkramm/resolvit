@@ -6,6 +6,7 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"testing"
@@ -15,20 +16,26 @@ import (
 	"github.com/spf13/viper"
 )
 
-func TestDNSServer(t *testing.T) {
-	// Create temp dir and copy records file
-	tmpDir, err := os.MkdirTemp("", "dns-test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(tmpDir)
+func TestDNSServerUDP(t *testing.T) {
+	runDNSServerTest(t, new(dns.Client))
+}
 
+func TestDNSServerTCP(t *testing.T) {
+	runDNSServerTest(t, &dns.Client{Net: "tcp"})
+}
+
+func runDNSServerTest(t *testing.T, client *dns.Client) {
+	t.Helper()
+	// Create temp dir and copy records file
+	tmpDir := t.TempDir()
+	logFile := tmpDir + "/resolv.log"
 	recordsFile := filepath.Join(tmpDir, "records.txt")
 	initialRecords := []byte(`my.example.com A 127.0.0.99
 cname.example.com CNAME my.example.com
 cname2.example.com CNAME cname.example.com
 google.example.com CNAME google.com
-web.example.com A 192.168.1.1`)
+web.example.com A 192.168.1.1
+nochange.example.com A 192.168.100.100`)
 
 	if err := os.WriteFile(recordsFile, initialRecords, 0600); err != nil {
 		t.Fatal(err)
@@ -38,8 +45,8 @@ web.example.com A 192.168.1.1`)
 	viper.Set("upstream", []string{"1.1.1.1:53"})
 	viper.Set("listen", "127.0.0.1:5300")
 	viper.Set("resolve-from", recordsFile)
-	viper.Set("log-level", "error")
-	viper.Set("log-file", "stdout")
+	viper.Set("log-level", "debug")
+	viper.Set("log-file", logFile)
 
 	// Start server
 	go main()
@@ -76,29 +83,22 @@ web.example.com A 192.168.1.1`)
 			wantContent: "my.example.com.",
 			wantIP:      "127.0.0.99",
 		},
+		{
+			name:        "Initial No Change Record",
+			domain:      "nochange.example.com.",
+			queryType:   dns.TypeA,
+			wantType:    dns.TypeA,
+			wantContent: "192.168.100.100",
+		},
 	}
 
-	//runTests(t, c, tests)
-	// Create both UDP and TCP clients
-	udpClient := new(dns.Client)
-	tcpClient := &dns.Client{Net: "tcp"}
-
-	// Run tests with both UDP and TCP
-	clients := map[string]*dns.Client{
-		"UDP": udpClient,
-		"TCP": tcpClient,
-	}
-
-	for protocol, c := range clients {
-		t.Run(protocol, func(t *testing.T) {
-			// Run existing tests with current client
-			runTests(t, c, tests)
-		})
-	}
+	// Run tests with current client
+	runTests(t, client, tests)
 
 	// Update records file with new content
 	newRecords := []byte(`*.example.com A 192.168.1.100
-new.example.com CNAME test.example.com`)
+new.example.com CNAME test.example.com
+nochange.example.com A 192.168.100.101`)
 
 	if err := os.WriteFile(recordsFile, newRecords, 0600); err != nil {
 		t.Fatal(err)
@@ -113,6 +113,7 @@ new.example.com CNAME test.example.com`)
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Logf("Sent SIGHUP to pid %d", os.Getpid())
 	time.Sleep(1 * time.Second)
 
 	// Test reloaded records
@@ -132,6 +133,13 @@ new.example.com CNAME test.example.com`)
 			wantContent: "192.168.1.100",
 		},
 		{
+			name:        "A record Cache Hit",
+			domain:      "test.example.com.",
+			queryType:   dns.TypeA,
+			wantType:    dns.TypeA,
+			wantContent: "192.168.1.100",
+		},
+		{
 			name:        "New CNAME record",
 			domain:      "new.example.com.",
 			queryType:   dns.TypeA,
@@ -139,16 +147,33 @@ new.example.com CNAME test.example.com`)
 			wantContent: "test.example.com.",
 			wantIP:      "192.168.1.100",
 		},
+		{
+			name:        "Initial No Change Record",
+			domain:      "nochange.example.com.",
+			queryType:   dns.TypeA,
+			wantType:    dns.TypeA,
+			wantContent: "192.168.100.101",
+		},
 	}
 
-	// Run reload tests with both protocols
-	for protocol, c := range clients {
-		t.Run("Reload_"+protocol, func(t *testing.T) {
-			runTests(t, c, reloadTests)
-		})
+	// Run reload tests
+	runTests(t, client, reloadTests)
+
+	logContent, err := os.ReadFile(logFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Log(string(logContent))
+	cacheHits := strings.Count(string(logContent), "cache hit")
+	t.Logf("Found %d cache hits in log", cacheHits)
+	if cacheHits != 1 {
+		t.Errorf("got %d cache hits, expecting 1", cacheHits)
+	}
+
+	if !strings.Contains(string(logContent), "cache cleared") {
+		t.Error("Expected 'cache cleared' message in logs but found none")
 	}
 }
-
 func runTests(t *testing.T, c *dns.Client, tests []struct {
 	name        string
 	domain      string
@@ -203,11 +228,7 @@ func runTests(t *testing.T, c *dns.Client, tests []struct {
 
 func TestConcurrentRequests(t *testing.T) {
 	// Setup same test environment as in TestDNSServer
-	tmpDir, err := os.MkdirTemp("", "dns-test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(tmpDir)
+	tmpDir := t.TempDir()
 
 	recordsFile := filepath.Join(tmpDir, "records.txt")
 	records := []byte(`

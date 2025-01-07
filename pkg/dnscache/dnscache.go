@@ -49,3 +49,10 @@ func (c *DNSCache) Set(key string, msg *dns.Msg) {
 	}
 	c.cache[key] = CacheEntry{Msg: msg, ExpiresAt: time.Now().Add(ttl)}
 }
+
+func (c *DNSCache) Clear() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.cache = make(map[string]CacheEntry)
+	c.log.Info("cache cleared")
+}

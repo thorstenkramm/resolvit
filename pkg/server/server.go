@@ -49,3 +49,7 @@ func (s *Server) Start() error {
 	}
 	return nil
 }
+
+func (s *Server) ClearCache() {
+	s.cache.Clear()
+}

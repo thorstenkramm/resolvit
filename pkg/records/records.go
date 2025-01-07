@@ -35,8 +35,8 @@ func Get(name string) *Record {
 
 	// Try wildcard match
 	parts := strings.Split(name, ".")
-	if len(parts) > 2 {
-		wildcardName := "*." + strings.Join(parts[1:], ".")
+	for i := 1; i < len(parts)-1; i++ {
+		wildcardName := "*." + strings.Join(parts[i:], ".")
 		if record, ok := records[wildcardName]; ok {
 			return &record
 		}
