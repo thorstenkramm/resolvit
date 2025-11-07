@@ -47,7 +47,12 @@ func (h *Handler) HandleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 		w:         w,
 	}
 
-	cacheKey := state.queryName + strconv.Itoa(int(q.Qtype))
+	// Include transport protocol in cache key to separate UDP (potentially truncated) from TCP (complete) responses
+	protocol := "udp"
+	if w.RemoteAddr().Network() == "tcp" {
+		protocol = "tcp"
+	}
+	cacheKey := state.queryName + strconv.Itoa(int(q.Qtype)) + protocol
 
 	// Extract the client's IP address
 	clientIP, _, err := net.SplitHostPort(w.RemoteAddr().String())
@@ -176,15 +181,23 @@ func (h *Handler) handleA(rs *requestState, r *dns.Msg, rec *records.Record) *dn
 }
 
 func (h *Handler) writeResponse(rs *requestState, msg *dns.Msg) {
+	// Check if this is a TCP connection
+	isTCP := rs.w.RemoteAddr().Network() == "tcp"
+
 	if len(msg.Answer) > 0 {
 		msgSize := msg.Len()
 		if msgSize > MaxMsgSize {
-			msg.Truncated = true
-			h.log.Debug("message too large", "size", msgSize, "max", MaxMsgSize)
-			// Keep only as many records as fit within the buffer
-			for msgSize > MaxMsgSize && len(msg.Answer) > 0 {
-				msg.Answer = msg.Answer[:len(msg.Answer)-1]
-				msgSize = msg.Len()
+			if isTCP {
+				// TCP can handle larger messages, send complete response
+				h.log.Debug("message large but sending via TCP", "size", msgSize)
+			} else {
+				// UDP: set truncated flag, client should retry via TCP
+				msg.Truncated = true
+				h.log.Debug("message too large for UDP, truncating", "size", msgSize, "max", MaxMsgSize)
+				for msgSize > MaxMsgSize && len(msg.Answer) > 0 {
+					msg.Answer = msg.Answer[:len(msg.Answer)-1]
+					msgSize = msg.Len()
+				}
 			}
 		}
 	}
