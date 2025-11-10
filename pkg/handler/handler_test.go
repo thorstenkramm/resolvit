@@ -73,7 +73,7 @@ func TestHandleDNSRequest(t *testing.T) {
 			name:       "Remote A record",
 			query:      "example.com.",
 			wantType:   dns.TypeA,
-			wantTarget: "",  // Don't check specific IP as it may change (CDN)
+			wantTarget: "", // Don't check specific IP as it may change (CDN)
 			wantCache:  true,
 			wantAuth:   false,
 			wantRA:     true,
