@@ -1,5 +1,7 @@
+// Package version exposes build-time version metadata.
 package version
 
+// ResolvitVersion is the semantic version string embedded at build time.
 var ResolvitVersion = "0.0.0-src"
 
 // Set version at compile time with

@@ -1,3 +1,4 @@
+// Package main boots the resolvit DNS service.
 package main
 
 import (

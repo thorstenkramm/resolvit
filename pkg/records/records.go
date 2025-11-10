@@ -1,14 +1,18 @@
+// Package records stores and serves locally configured DNS records.
 package records
 
 import (
 	"bufio"
+	"fmt"
 	"log/slog"
 	"net"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 )
 
+// Record represents a single DNS record entry.
 type Record struct {
 	Typ     string
 	Content string
@@ -20,10 +24,13 @@ var (
 )
 
 const (
+	// CNAME is the canonical name record identifier used in record files.
 	CNAME = "cname"
-	A     = "a"
+	// A is the IPv4 host record identifier used in record files.
+	A = "a"
 )
 
+// Get looks up a record by name, supporting wildcard matches.
 func Get(name string) *Record {
 	mu.RLock()
 	defer mu.RUnlock()
@@ -45,6 +52,7 @@ func Get(name string) *Record {
 	return nil
 }
 
+// GetAll returns the in-memory record map for inspection or testing.
 func GetAll() map[string]Record {
 	mu.RLock()
 	defer mu.RUnlock()
@@ -52,6 +60,7 @@ func GetAll() map[string]Record {
 	return records
 }
 
+// Add inserts or updates a record in the in-memory store.
 func Add(name string, typ string, content string) {
 	mu.Lock()
 	defer mu.Unlock()
@@ -62,15 +71,29 @@ func Add(name string, typ string, content string) {
 	}
 }
 
+// LoadFromFile parses the given file and populates the record store.
 func LoadFromFile(filename string, log *slog.Logger) error {
 	mu.Lock()
 	defer mu.Unlock()
 
-	file, err := os.Open(filename)
+	resolvedPath, err := sanitizeRecordsPath(filename)
 	if err != nil {
 		return err
 	}
-	defer file.Close()
+
+	file, err := os.Open(resolvedPath) // #nosec G304 -- path validated via sanitizeRecordsPath
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err := file.Close(); err != nil {
+			if log != nil {
+				log.Error("failed to close records file", "from_file", filename, "error", err)
+			} else {
+				slog.Error("failed to close records file", "from_file", filename, "error", err)
+			}
+		}
+	}()
 
 	// Clear existing records
 	records = make(map[string]Record)
@@ -113,7 +136,24 @@ func LoadFromFile(filename string, log *slog.Logger) error {
 		}
 	}
 
-	log.Info("Loaded records", "from_file", filename, "num_records", len(records))
+	log.Info("Loaded records", "from_file", resolvedPath, "num_records", len(records))
 
 	return scanner.Err()
+}
+
+func sanitizeRecordsPath(path string) (string, error) {
+	if path == "" {
+		return "", fmt.Errorf("records path is empty")
+	}
+
+	clean := filepath.Clean(path)
+	if clean == "." || clean == string(os.PathSeparator) {
+		return "", fmt.Errorf("records path %q resolves to a directory", path)
+	}
+
+	if clean == ".." || strings.HasPrefix(clean, ".."+string(os.PathSeparator)) {
+		return "", fmt.Errorf("records path %q escapes the working directory", path)
+	}
+
+	return clean, nil
 }

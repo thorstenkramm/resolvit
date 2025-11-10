@@ -28,8 +28,14 @@ func TestLogger(t *testing.T) {
 		t.Run(tc.level+"-"+tc.logFile, func(t *testing.T) {
 			if tc.logFile != "stdout" {
 				// Clean up any existing test log file
-				os.Remove(tc.logFile)
-				defer os.Remove(tc.logFile)
+				if err := os.Remove(tc.logFile); err != nil && !os.IsNotExist(err) {
+					t.Fatalf("os.Remove: %v", err)
+				}
+				defer func(filename string) {
+					if err := os.Remove(filename); err != nil && !os.IsNotExist(err) {
+						t.Errorf("os.Remove: %v", err)
+					}
+				}(tc.logFile)
 			}
 
 			Setup(tc.level, tc.logFile)

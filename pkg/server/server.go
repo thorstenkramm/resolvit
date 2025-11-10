@@ -1,3 +1,4 @@
+// Package server exposes the DNS server wiring for resolvit.
 package server
 
 import (
@@ -10,6 +11,7 @@ import (
 	"github.com/miekg/dns"
 )
 
+// Server hosts both UDP and TCP DNS servers sharing the same handler stack.
 type Server struct {
 	server    *dns.Server
 	tcpServer *dns.Server
@@ -18,6 +20,7 @@ type Server struct {
 	log       *slog.Logger
 }
 
+// New constructs a Server that listens on addr and forwards to upstreams.
 func New(addr string, upstreams []string, log *slog.Logger) *Server {
 	cache := dnscache.New(log)
 	forwarder := forward.New(upstreams, log)
@@ -36,6 +39,7 @@ func New(addr string, upstreams []string, log *slog.Logger) *Server {
 	return s
 }
 
+// Start launches both TCP and UDP listeners and blocks until the UDP server stops.
 func (s *Server) Start() error {
 	s.log.Info("starting DNS server", "version", version.ResolvitVersion, "address", s.server.Addr)
 	go func() {
@@ -50,6 +54,7 @@ func (s *Server) Start() error {
 	return nil
 }
 
+// ClearCache removes all cached DNS entries.
 func (s *Server) ClearCache() {
 	s.cache.Clear()
 }

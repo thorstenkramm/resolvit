@@ -1,3 +1,4 @@
+// Package handler contains the DNS request handling logic for resolvit.
 package handler
 
 import (
@@ -12,10 +13,13 @@ import (
 )
 
 const (
+	// DefaultTTL is used for locally generated DNS responses.
 	DefaultTTL = 600
+	// MaxMsgSize is the largest UDP response size before truncation.
 	MaxMsgSize = 512
 )
 
+// Handler coordinates cache lookups, local records, and upstream forwarding.
 type Handler struct {
 	cache     *dnscache.DNSCache
 	forwarder *forward.Forwarder
@@ -30,6 +34,7 @@ type requestState struct {
 	w         dns.ResponseWriter
 }
 
+// New wires the cache, forwarder, and logging dependencies into a Handler.
 func New(cache *dnscache.DNSCache, forwarder *forward.Forwarder, listen string, log *slog.Logger) *Handler {
 	return &Handler{
 		cache:     cache,
@@ -39,6 +44,7 @@ func New(cache *dnscache.DNSCache, forwarder *forward.Forwarder, listen string, 
 	}
 }
 
+// HandleDNSRequest processes a DNS message and writes the response to the client.
 func (h *Handler) HandleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 	q := r.Question[0]
 	state := &requestState{
@@ -136,13 +142,14 @@ func (h *Handler) handleCNAME(rs *requestState, r *dns.Msg, rec *records.Record)
 			break
 		}
 
-		if targetRec.Typ == records.CNAME {
+		switch targetRec.Typ {
+		case records.CNAME:
 			msg.Answer = append(msg.Answer, &dns.CNAME{
 				Hdr:    dns.RR_Header{Name: target, Rrtype: dns.TypeCNAME, Class: dns.ClassINET, Ttl: DefaultTTL},
 				Target: targetRec.Content + ".",
 			})
 			target = targetRec.Content + "."
-		} else if targetRec.Typ == records.A {
+		case records.A:
 			msg.Answer = append(msg.Answer, &dns.A{
 				Hdr: dns.RR_Header{Name: target, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: DefaultTTL},
 				A:   net.ParseIP(targetRec.Content),
