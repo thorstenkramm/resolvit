@@ -2,7 +2,9 @@
 
 set -e
 
-sudo apt-get install -f python3-dnspython
+if which apt-get; then
+    sudo apt-get install -f python3-dnspython
+fi
 
 # Build the software with race condition detector enabled.
 go build -race -o ./resolvit main.go
