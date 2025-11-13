@@ -1,20 +1,33 @@
+// Package logger configures slog for the resolvit server.
 package logger
 
 import (
+	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
+// Setup builds a slog.Logger using the requested level and writer destination.
 func Setup(logLevel string, logFile string) *slog.Logger {
 	var logWriter = os.Stdout
 	var handlerOptions = &slog.HandlerOptions{Level: getLogLevel(logLevel)}
 
 	if logFile != "stdout" {
-		var err error
-		logWriter, err = os.OpenFile(logFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		resolvedPath, err := sanitizeLogPath(logFile)
 		if err != nil {
-			slog.Error("failed to open log file", "error", err)
+			slog.Error("invalid log file path", "path", logFile, "error", err)
+			os.Exit(1)
+		}
+		// #nosec G304 -- path validated via sanitizeLogPath
+		logWriter, err = os.OpenFile(
+			resolvedPath,
+			os.O_APPEND|os.O_CREATE|os.O_WRONLY,
+			0o600,
+		)
+		if err != nil {
+			slog.Error("failed to open log file", "path", resolvedPath, "error", err)
 			os.Exit(1)
 		}
 	} else {
@@ -47,4 +60,21 @@ func getLogLevel(logLevel string) slog.Level {
 		level = slog.LevelInfo
 	}
 	return level
+}
+
+func sanitizeLogPath(path string) (string, error) {
+	if path == "" {
+		return "", fmt.Errorf("log file path is empty")
+	}
+
+	clean := filepath.Clean(path)
+	if clean == "." || clean == string(os.PathSeparator) {
+		return "", fmt.Errorf("log file path %q resolves to a directory", path)
+	}
+
+	if clean == ".." || strings.HasPrefix(clean, ".."+string(os.PathSeparator)) {
+		return "", fmt.Errorf("log file path %q escapes the working directory", path)
+	}
+
+	return clean, nil
 }

@@ -159,7 +159,11 @@ nochange.example.com A 192.168.100.101`)
 	// Run reload tests
 	runTests(t, client, reloadTests)
 
-	logContent, err := os.ReadFile(logFile)
+	logPath := filepath.Clean(logFile)
+	if rel, err := filepath.Rel(tmpDir, logPath); err != nil || strings.HasPrefix(rel, "..") {
+		t.Fatalf("log path escapes temp dir: %s", logFile)
+	}
+	logContent, err := os.ReadFile(logPath) // #nosec G304 -- log path validated above
 	if err != nil {
 		t.Fatal(err)
 	}

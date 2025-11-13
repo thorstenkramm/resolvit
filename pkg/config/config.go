@@ -1,3 +1,4 @@
+// Package config wires CLI and environment configuration for the DNS server.
 package config
 
 import (
@@ -12,6 +13,7 @@ import (
 	"github.com/spf13/viper"
 )
 
+// Config contains all runtime options required by the resolvit server.
 type Config struct {
 	Upstreams   []string
 	Listen      string
@@ -20,6 +22,7 @@ type Config struct {
 	LogFile     string
 }
 
+// ValidateLogLevel ensures the user-provided log level matches the supported set.
 func ValidateLogLevel(level string) error {
 	validLevels := map[string]bool{
 		"debug": true,
@@ -33,6 +36,7 @@ func ValidateLogLevel(level string) error {
 	return nil
 }
 
+// ValidateAddress confirms that an address string has a valid host and UDP port.
 func ValidateAddress(addr string) error {
 	host, port, err := net.SplitHostPort(addr)
 	if port == "" {
@@ -50,6 +54,7 @@ func ValidateAddress(addr string) error {
 	return nil
 }
 
+// ParseUpstream adds the default DNS port when an upstream is provided without one.
 func ParseUpstream(upstream string) string {
 	if !strings.Contains(upstream, ":") {
 		return upstream + ":53"
@@ -82,6 +87,7 @@ func validateArgs() error {
 	return nil
 }
 
+// Setup configures Cobra/Viper, parses CLI flags, and produces a Config instance.
 func Setup() (*Config, error) {
 	var rootCmd = &cobra.Command{
 		Use:   "resolvit",
@@ -134,6 +140,8 @@ while forwarding all other requests to upstream DNS servers.`,
 
 	return config, nil
 }
+
+// ApplyExitOnHelp exits with the provided code after Cobra prints help text.
 func ApplyExitOnHelp(c *cobra.Command, exitCode int) {
 	helpFunc := c.HelpFunc()
 	c.SetHelpFunc(func(c *cobra.Command, s []string) {
