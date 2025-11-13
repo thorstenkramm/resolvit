@@ -33,18 +33,34 @@ if [[ -z "${GCI_VERSION_LINE}" ]]; then
 fi
 GCI_VERSION="$(awk -F= '{print $2}' <<<"${GCI_VERSION_LINE}" | tr -d ' \"')"
 
-echo " 🚚 Running golangci-lint v${GCI_VERSION} in Docker..."
-docker run --rm --name "Golanci-lint_${GCI_VERSION}" -e GOFLAGS=-mod=readonly \
+echo "🚚 Running golangci-lint v${GCI_VERSION} in Docker..."
+docker run --rm --name "Golangci_lint_${GCI_VERSION}" -e GOFLAGS=-mod=readonly \
   -v "${ROOT_DIR}:/app" \
   -w /app \
   "golangci/golangci-lint:v${GCI_VERSION}" \
   golangci-lint run
 echo " ✅ golangci-lint succeeded"
 
-echo " 🚚 Running go test ./... using golang:${GO_VERSION} Docker image..."
+echo "🚚 Running go test ./... using golang:${GO_VERSION} Docker image..."
 docker run --rm --name "Go_Tests_${GO_VERSION}" -e GOFLAGS=-mod=readonly \
   -v "${ROOT_DIR}:/app" \
   -w /app \
   "golang:${GO_VERSION}" \
   bash -c "go test ./..."
 echo " ✅ Test succeeded"
+
+echo "🚚 Running jscpd in Node 20 Docker image..."
+docker run --rm --name "JSCPD_Node20" \
+  -v "${ROOT_DIR}:/app" \
+  -w /app \
+  node:20 \
+  bash -c 'npx jscpd --pattern "**/*.go" --ignore "**/*_test.go" --threshold 0 --exitCode 1'
+echo " ✅ jscpd succeeded"
+
+echo "🚚 Running stress-test script inside Python 3.14 Docker image..."
+docker run --rm --name "Stress_Test" -e GOFLAGS=-mod=readonly \
+  -v "${ROOT_DIR}:/app" \
+  -w /app \
+  "golang:${GO_VERSION}" \
+  bash -c "apt-get update && apt-get -y install sudo &&  bash .github/scripts/stress-test.sh"
+echo " ✅ stress test completed"

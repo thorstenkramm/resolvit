@@ -128,9 +128,17 @@ For a release build with version and optimization flags:
 
 ## Testing
 
+> [!TIP]
+> Use `./docker-run-tests.sh` to run all tests and quality gates in a single run.
+
 All parts are covered by go unit tests. Run them with:
 
     go test -race ./...
+
+CI/CD runs [jscpd](https://github.com/kucherenko/jscpd) a Copy/paste detector for programming source code.
+Before pushing, run it locally:
+
+    npx jscpd --pattern "**/*.go" --ignore "**/*_test.go" --threshold 0 --exitCode 1
 
 Additionally, a python based stress test command-line utility `./dns-stress.py` is included.
 Python 3.7+ and `dnspython` is required. Use `./dns-stress.py --help`.  

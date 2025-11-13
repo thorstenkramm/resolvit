@@ -3,7 +3,7 @@
 set -e
 
 if which apt-get; then
-    sudo apt-get install -f python3-dnspython
+    sudo apt-get install -y -f python3-dnspython
 fi
 
 # Build the software with race condition detector enabled.
