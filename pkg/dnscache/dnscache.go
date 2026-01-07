@@ -16,6 +16,7 @@ type CacheEntry struct {
 }
 
 // DNSCache caches DNS responses keyed by question so repeat lookups are faster.
+// DNSCache is safe for concurrent use.
 type DNSCache struct {
 	mu    sync.RWMutex
 	cache map[string]CacheEntry

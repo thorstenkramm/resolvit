@@ -4,8 +4,10 @@ import (
 	"crypto/rand"
 	"fmt"
 	"math/big"
+	"net"
 	"os"
 	"path/filepath"
+	"resolvit/internal/testutil"
 	"strings"
 	"sync"
 	"syscall"
@@ -26,6 +28,17 @@ func TestDNSServerTCP(t *testing.T) {
 
 func runDNSServerTest(t *testing.T, client *dns.Client) {
 	t.Helper()
+	responses := map[string]testutil.Response{
+		testutil.Key("heise.de.", dns.TypeA): {
+			Answers: []dns.RR{testutil.ARecord("heise.de.", "193.99.144.80")},
+		},
+		testutil.Key("google.com.", dns.TypeA): {
+			Answers: []dns.RR{testutil.ARecord("google.com.", "142.250.184.14")},
+		},
+	}
+	stub := testutil.StartDNSStub(t, testutil.FixedHandler(responses))
+	listenAddr := getFreeAddr(t)
+
 	// Create temp dir and copy records file
 	tmpDir := t.TempDir()
 	logFile := tmpDir + "/resolv.log"
@@ -42,8 +55,8 @@ nochange.example.com A 192.168.100.100`)
 	}
 
 	// Set test configuration
-	viper.Set("upstream", []string{"1.1.1.1:53"})
-	viper.Set("listen", "127.0.0.1:5300")
+	viper.Set("upstream", []string{stub.Addr})
+	viper.Set("listen", listenAddr)
 	viper.Set("resolve-from", recordsFile)
 	viper.Set("log-level", "debug")
 	viper.Set("log-file", logFile)
@@ -93,7 +106,7 @@ nochange.example.com A 192.168.100.100`)
 	}
 
 	// Run tests with current client
-	runTests(t, client, tests)
+	runTests(t, client, tests, listenAddr)
 
 	// Update records file with new content
 	newRecords := []byte(`*.example.com A 192.168.1.100
@@ -157,7 +170,7 @@ nochange.example.com A 192.168.100.101`)
 	}
 
 	// Run reload tests
-	runTests(t, client, reloadTests)
+	runTests(t, client, reloadTests, listenAddr)
 
 	logPath := filepath.Clean(logFile)
 	if rel, err := filepath.Rel(tmpDir, logPath); err != nil || strings.HasPrefix(rel, "..") {
@@ -185,7 +198,7 @@ func runTests(t *testing.T, c *dns.Client, tests []struct {
 	wantType    uint16
 	wantContent string
 	wantIP      string
-}) {
+}, serverAddr string) {
 	t.Helper()
 
 	for _, tt := range tests {
@@ -193,7 +206,7 @@ func runTests(t *testing.T, c *dns.Client, tests []struct {
 			m := new(dns.Msg)
 			m.SetQuestion(tt.domain, tt.queryType)
 
-			r, _, err := c.Exchange(m, "127.0.0.1:5300")
+			r, _, err := c.Exchange(m, serverAddr)
 			if err != nil {
 				t.Fatalf("Query failed: %v", err)
 			}
@@ -233,6 +246,13 @@ func runTests(t *testing.T, c *dns.Client, tests []struct {
 func TestConcurrentRequests(t *testing.T) {
 	// Setup same test environment as in TestDNSServer
 	tmpDir := t.TempDir()
+	listenAddr := getFreeAddr(t)
+	responses := map[string]testutil.Response{
+		testutil.Key("google.com.", dns.TypeA): {
+			Answers: []dns.RR{testutil.ARecord("google.com.", "142.250.184.14")},
+		},
+	}
+	stub := testutil.StartDNSStub(t, testutil.FixedHandler(responses))
 
 	recordsFile := filepath.Join(tmpDir, "records.txt")
 	records := []byte(`
@@ -247,8 +267,8 @@ test3.example.com A 192.168.1.3
 	}
 
 	// Set test configuration
-	viper.Set("upstream", []string{"1.1.1.1:53"})
-	viper.Set("listen", "127.0.0.1:5301") // Different port to avoid conflicts
+	viper.Set("upstream", []string{stub.Addr})
+	viper.Set("listen", listenAddr)
 	viper.Set("resolve-from", recordsFile)
 	viper.Set("log-level", "error")
 	viper.Set("log-file", "stdout")
@@ -303,7 +323,7 @@ test3.example.com A 192.168.1.3
 				m := new(dns.Msg)
 				m.SetQuestion(test.domain, test.queryType)
 
-				r, _, err := c.Exchange(m, "127.0.0.1:5301")
+				r, _, err := c.Exchange(m, listenAddr)
 				if err != nil {
 					errorsChan <- fmt.Errorf("query failed for %s: %w", test.domain, err)
 					continue
@@ -333,4 +353,18 @@ test3.example.com A 192.168.1.3
 	if errCount > 0 {
 		t.Fatalf("got %d errors during concurrent testing", errCount)
 	}
+}
+
+func getFreeAddr(t *testing.T) string {
+	t.Helper()
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen on random port: %v", err)
+	}
+	addr := listener.Addr().String()
+	if err := listener.Close(); err != nil {
+		t.Fatalf("close listener: %v", err)
+	}
+	return addr
 }

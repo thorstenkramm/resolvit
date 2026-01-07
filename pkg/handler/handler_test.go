@@ -3,11 +3,11 @@ package handler
 import (
 	"fmt"
 	"net"
+	"resolvit/internal/testutil"
 	"resolvit/pkg/dnscache"
 	"resolvit/pkg/forward"
 	"resolvit/pkg/logger"
 	"resolvit/pkg/records"
-	"strconv"
 	"testing"
 
 	"github.com/miekg/dns"
@@ -109,9 +109,25 @@ func TestHandleDNSRequest(t *testing.T) {
 		},
 	}
 
+	responses := map[string]testutil.Response{
+		testutil.Key("example.com.", dns.TypeA): {
+			Answers: []dns.RR{testutil.ARecord("example.com.", "93.184.216.34")},
+		},
+		testutil.Key("cname-localhost.sys25.net.", dns.TypeA): {
+			Answers: []dns.RR{
+				testutil.CNAMERecord("cname-localhost.sys25.net.", "localhost."),
+				testutil.ARecord("localhost.", "127.0.0.1"),
+			},
+		},
+		testutil.Key("monitoring.hcloud.dimedis.net.", dns.TypeAAAA): {
+			Answers: []dns.RR{testutil.AAAARecord("monitoring.hcloud.dimedis.net.", "2a01:4f9:c010:cf73::1")},
+		},
+	}
+	stub := testutil.StartDNSStub(t, testutil.FixedHandler(responses))
+
 	logger := logger.Setup("debug", "stdout")
 	cache := dnscache.New(logger)
-	forwarder := forward.New([]string{"8.8.8.8:53"}, logger)
+	forwarder := forward.New([]string{stub.Addr}, logger)
 	// Create a new DNS Request handler
 	h := New(cache, forwarder, "127.0.0.1:5300", logger)
 
@@ -166,7 +182,7 @@ func TestHandleDNSRequest(t *testing.T) {
 				if w.network == "tcp" {
 					protocol = "tcp"
 				}
-				cacheKey := tt.query + strconv.Itoa(int(dns.TypeA)) + protocol
+				cacheKey := cacheKeyFor(tt.query, dns.TypeA, protocol)
 				_, found := cache.Get(cacheKey)
 				if !found {
 					t.Error("Expected response to be cached")
@@ -199,9 +215,16 @@ func TestMessageTruncation(t *testing.T) {
 	// Final CNAME points to our local A record
 	records.Add("cname11.example.com.", records.CNAME, "final.example.com")
 
+	responses := map[string]testutil.Response{
+		testutil.Key("unused.example.com.", dns.TypeA): {
+			Answers: []dns.RR{testutil.ARecord("unused.example.com.", "192.0.2.1")},
+		},
+	}
+	stub := testutil.StartDNSStub(t, testutil.FixedHandler(responses))
+
 	logger := logger.Setup("debug", "stdout")
 	cache := dnscache.New(logger)
-	forwarder := forward.New([]string{"8.8.8.8:53"}, logger)
+	forwarder := forward.New([]string{stub.Addr}, logger)
 	h := New(cache, forwarder, "127.0.0.1:5300", logger)
 
 	req := new(dns.Msg)
@@ -292,9 +315,16 @@ func TestTCPvsUDPTruncation(t *testing.T) {
 	// Final CNAME points to our local A record
 	records.Add("tcptest-cname10.example.com.", records.CNAME, "final-tcp-test.example.com")
 
+	responses := map[string]testutil.Response{
+		testutil.Key("unused.example.com.", dns.TypeA): {
+			Answers: []dns.RR{testutil.ARecord("unused.example.com.", "192.0.2.1")},
+		},
+	}
+	stub := testutil.StartDNSStub(t, testutil.FixedHandler(responses))
+
 	logger := logger.Setup("debug", "stdout")
 	cache := dnscache.New(logger)
-	forwarder := forward.New([]string{"8.8.8.8:53"}, logger)
+	forwarder := forward.New([]string{stub.Addr}, logger)
 	h := New(cache, forwarder, "127.0.0.1:5300", logger)
 
 	req := new(dns.Msg)
@@ -377,9 +407,16 @@ func TestSeparateUDPTCPCache(t *testing.T) {
 	}
 	records.Add("cachetest-cname10.example.com.", records.CNAME, "cache-test-final.example.com")
 
+	responses := map[string]testutil.Response{
+		testutil.Key("unused.example.com.", dns.TypeA): {
+			Answers: []dns.RR{testutil.ARecord("unused.example.com.", "192.0.2.1")},
+		},
+	}
+	stub := testutil.StartDNSStub(t, testutil.FixedHandler(responses))
+
 	logger := logger.Setup("debug", "stdout")
 	cache := dnscache.New(logger)
-	forwarder := forward.New([]string{"8.8.8.8:53"}, logger)
+	forwarder := forward.New([]string{stub.Addr}, logger)
 	h := New(cache, forwarder, "127.0.0.1:5300", logger)
 
 	req := new(dns.Msg)
@@ -460,9 +497,16 @@ func TestFinalARecordPreservedInTCP(t *testing.T) {
 	}
 	records.Add("long-cname15.example.com.", records.CNAME, "critical-target.example.com")
 
+	responses := map[string]testutil.Response{
+		testutil.Key("unused.example.com.", dns.TypeA): {
+			Answers: []dns.RR{testutil.ARecord("unused.example.com.", "192.0.2.1")},
+		},
+	}
+	stub := testutil.StartDNSStub(t, testutil.FixedHandler(responses))
+
 	logger := logger.Setup("debug", "stdout")
 	cache := dnscache.New(logger)
-	forwarder := forward.New([]string{"8.8.8.8:53"}, logger)
+	forwarder := forward.New([]string{stub.Addr}, logger)
 	h := New(cache, forwarder, "127.0.0.1:5300", logger)
 
 	req := new(dns.Msg)

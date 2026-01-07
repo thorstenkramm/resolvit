@@ -62,6 +62,7 @@ func getLogLevel(logLevel string) slog.Level {
 	return level
 }
 
+// sanitizeLogPath rejects empty, root, or parent paths to avoid traversal.
 func sanitizeLogPath(path string) (string, error) {
 	if path == "" {
 		return "", fmt.Errorf("log file path is empty")
