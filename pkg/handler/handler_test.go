@@ -129,7 +129,7 @@ func TestHandleDNSRequest(t *testing.T) {
 	cache := dnscache.New(logger)
 	forwarder := forward.New([]string{stub.Addr}, logger)
 	// Create a new DNS Request handler
-	h := New(cache, forwarder, "127.0.0.1:5300", logger)
+	h := New(cache, forwarder, "127.0.0.1:5300", logger, nil)
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -225,7 +225,7 @@ func TestMessageTruncation(t *testing.T) {
 	logger := logger.Setup("debug", "stdout")
 	cache := dnscache.New(logger)
 	forwarder := forward.New([]string{stub.Addr}, logger)
-	h := New(cache, forwarder, "127.0.0.1:5300", logger)
+	h := New(cache, forwarder, "127.0.0.1:5300", logger, nil)
 
 	req := new(dns.Msg)
 	req.SetQuestion("cname0.example.com.", dns.TypeA)
@@ -325,7 +325,7 @@ func TestTCPvsUDPTruncation(t *testing.T) {
 	logger := logger.Setup("debug", "stdout")
 	cache := dnscache.New(logger)
 	forwarder := forward.New([]string{stub.Addr}, logger)
-	h := New(cache, forwarder, "127.0.0.1:5300", logger)
+	h := New(cache, forwarder, "127.0.0.1:5300", logger, nil)
 
 	req := new(dns.Msg)
 	req.SetQuestion("tcptest-cname0.example.com.", dns.TypeA)
@@ -417,7 +417,7 @@ func TestSeparateUDPTCPCache(t *testing.T) {
 	logger := logger.Setup("debug", "stdout")
 	cache := dnscache.New(logger)
 	forwarder := forward.New([]string{stub.Addr}, logger)
-	h := New(cache, forwarder, "127.0.0.1:5300", logger)
+	h := New(cache, forwarder, "127.0.0.1:5300", logger, nil)
 
 	req := new(dns.Msg)
 	req.SetQuestion("cachetest-cname0.example.com.", dns.TypeA)
@@ -507,7 +507,7 @@ func TestFinalARecordPreservedInTCP(t *testing.T) {
 	logger := logger.Setup("debug", "stdout")
 	cache := dnscache.New(logger)
 	forwarder := forward.New([]string{stub.Addr}, logger)
-	h := New(cache, forwarder, "127.0.0.1:5300", logger)
+	h := New(cache, forwarder, "127.0.0.1:5300", logger, nil)
 
 	req := new(dns.Msg)
 	req.SetQuestion("long-cname0.example.com.", dns.TypeA)

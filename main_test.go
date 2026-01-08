@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/miekg/dns"
-	"github.com/spf13/viper"
 )
 
 func TestDNSServerUDP(t *testing.T) {
@@ -54,12 +53,25 @@ nochange.example.com A 192.168.100.100`)
 		t.Fatal(err)
 	}
 
-	// Set test configuration
-	viper.Set("upstream", []string{stub.Addr})
-	viper.Set("listen", listenAddr)
-	viper.Set("resolve-from", recordsFile)
-	viper.Set("log-level", "debug")
-	viper.Set("log-file", logFile)
+	configPath := filepath.Join(tmpDir, "resolvit.conf")
+	configContents := fmt.Sprintf(`[server]
+listen = %q
+
+[upstream]
+servers = [%q]
+
+[logging]
+level = "debug"
+file = %q
+
+[records]
+resolve_from = %q
+`, listenAddr, stub.Addr, logFile, recordsFile)
+
+	if err := os.WriteFile(configPath, []byte(configContents), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("RESOLVIT_CONFIG", configPath)
 
 	// Start server
 	go main()
@@ -76,6 +88,13 @@ nochange.example.com A 192.168.100.100`)
 	}{
 		{
 			name:        "Forwarded A record",
+			domain:      "heise.de.",
+			queryType:   dns.TypeA,
+			wantType:    dns.TypeA,
+			wantContent: "193.99.144.80",
+		},
+		{
+			name:        "Forwarded A record cache hit",
 			domain:      "heise.de.",
 			queryType:   dns.TypeA,
 			wantType:    dns.TypeA,
@@ -266,12 +285,25 @@ test3.example.com A 192.168.1.3
 		t.Fatal(err)
 	}
 
-	// Set test configuration
-	viper.Set("upstream", []string{stub.Addr})
-	viper.Set("listen", listenAddr)
-	viper.Set("resolve-from", recordsFile)
-	viper.Set("log-level", "error")
-	viper.Set("log-file", "stdout")
+	configPath := filepath.Join(tmpDir, "resolvit.conf")
+	configContents := fmt.Sprintf(`[server]
+listen = %q
+
+[upstream]
+servers = [%q]
+
+[logging]
+level = "error"
+file = "stdout"
+
+[records]
+resolve_from = %q
+`, listenAddr, stub.Addr, recordsFile)
+
+	if err := os.WriteFile(configPath, []byte(configContents), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("RESOLVIT_CONFIG", configPath)
 
 	// Start server
 	go main()

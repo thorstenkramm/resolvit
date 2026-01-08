@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net"
 	"resolvit/pkg/dnscache"
+	"resolvit/pkg/filtering"
 	"resolvit/pkg/forward"
 	"resolvit/pkg/records"
 	"strconv"
@@ -26,6 +27,7 @@ type Handler struct {
 	forwarder *forward.Forwarder
 	listen    string
 	log       *slog.Logger
+	filter    *filtering.Filter
 }
 
 type requestState struct {
@@ -36,12 +38,13 @@ type requestState struct {
 }
 
 // New wires the cache, forwarder, and logging dependencies into a Handler.
-func New(cache *dnscache.DNSCache, forwarder *forward.Forwarder, listen string, log *slog.Logger) *Handler {
+func New(cache *dnscache.DNSCache, forwarder *forward.Forwarder, listen string, log *slog.Logger, filter *filtering.Filter) *Handler {
 	return &Handler{
 		cache:     cache,
 		forwarder: forwarder,
 		listen:    listen,
 		log:       log,
+		filter:    filter,
 	}
 }
 
@@ -83,16 +86,25 @@ func (h *Handler) HandleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 
 	h.log.Debug("received query", "name", state.queryName, "client_ip", state.clientIP, "type", q.Qtype, "id", r.Id, "query", q.String())
 
-	// Try to serve response from cache
-	if msg := h.checkCache(cacheKey, r.Id); msg != nil {
-		h.log.Debug("cache hit", "name", state.queryName, "client_ip", state.clientIP)
+	// Try to serve response from local records
+	if msg := h.handleLocalRecord(state, r); msg != nil {
+		h.cache.Set(cacheKey, msg)
 		h.writeResponse(state, msg)
 		return
 	}
 
-	// Try to serve response from local records
-	if msg := h.handleLocalRecord(state, r); msg != nil {
-		h.cache.Set(cacheKey, msg)
+	if h.filter != nil && h.filter.ShouldBlock(state.queryName) {
+		h.filter.LogBlocked(w.RemoteAddr().String(), state.queryName, state.queryType)
+		msg := new(dns.Msg)
+		msg.SetRcode(r, dns.RcodeNameError)
+		msg.RecursionAvailable = true
+		h.writeResponse(state, msg)
+		return
+	}
+
+	// Try to serve response from cache
+	if msg := h.checkCache(cacheKey, r.Id); msg != nil {
+		h.log.Debug("cache hit", "name", state.queryName, "client_ip", state.clientIP)
 		h.writeResponse(state, msg)
 		return
 	}
