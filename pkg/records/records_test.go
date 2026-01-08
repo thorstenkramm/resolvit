@@ -90,7 +90,7 @@ test.example.com A 192.168.1.300
 		},
 		{
 			name:   "Non-existent record",
-			domain: "notfound.example.com",
+			domain: "notfound.example.org",
 			wantOK: false,
 		},
 	}

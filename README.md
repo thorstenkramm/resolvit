@@ -1,10 +1,10 @@
 # resolvit
 
-A DNS Server that allows you to resolve specific DNS records locally while forwarding all other
-requests to upstream DNS Servers.
+A DNS Server that allows you to resolve specific DNS records locally while
+forwarding all other requests to upstream DNS Servers.
 
-It's main use-case is to act as a local forwarder on your intranet with the ability to resolve
-some records locally.
+Its main use-case is to act as a local forwarder on your intranet with the
+ability to resolve some records locally.
 
 ## Features
 
@@ -12,39 +12,43 @@ some records locally.
 - No need to create zones
 - DNS forwarding to upstream servers
 - DNS response caching
-- Configurable via command-line flags
+- Configurable via `/etc/resolvit/resolvit.conf` (TOML syntax)
 - Supports wildcards for A and CNAME records
+- Optional DNS filtering with blocklists and allowlist overrides
 
-Local records are read to memory on service start. Changes to the records file require
-a service reload.
+Local records are read to memory on service start. Changes to the records file
+require a service reload.
 
 Records remain in the cache according to the TTL given by the upstream server.  
 The cache is in-memory. It gets lost on service restart.
 
+## Filtering
+
+Resolvit can optionally block malware/scam/porn domains with curated blocklists
+and allowlist overrides. See `docs/filtering.md` for configuration details and
+the list catalog.
+
 ## Warnings
 
-resolvit is not an RFC compliant DNS Server. Do not use on the public internet. 
+resolvit is not an RFC compliant DNS Server. Do not use on the public internet.
 
 The following features are not supported:
- - DNSsec
- - local resolving of AAAA, TXT, MX, SOA records
- - Zone transfers
+
+- DNSsec
+- local resolving of AAAA, TXT, MX, SOA records
+- Zone transfers
 
 ## Usage
 
-Start the DNS Server:
+1. Copy `resolvit.conf.example` to `/etc/resolvit/resolvit.conf` and edit the
+   values.
+2. Start the DNS server:
 
-    resolvit --listen 127.0.0.1:5300 --upstream 8.8.8.8
+    resolvit
 
-Configuration Options:
+To use a non-default config file, set `RESOLVIT_CONFIG`:
 
-```
---listen: Listen address for DNS Server (default "127.0.0.1:5300")
---upstream: Upstream DNS Server (can specify multiple, default "9.9.9.9:53")
---resolve-from: File containing DNS records to resolve locally
---log-level: Log level (debug, info, warn, error) (default "info")
---log-file: Log file path (stdout for console) (default "stdout")
-```
+    RESOLVIT_CONFIG=/path/to/resolvit.conf resolvit
 
 ## Local Records File Format
 
@@ -57,12 +61,13 @@ Example:
     my.example.com A 127.0.0.99
     cname.example.com CNAME my.example.com
 
-Invalid lines are ignored. On loading the records resolvit will log a warning but continues starting. 
+Invalid lines are ignored. On loading the records resolvit will log a warning
+but continues starting.
 
 ## Limitations
 
-Only A and CNAME records are supported for local resolution
-All other record types are forwarded to upstream DNS Servers
+Only A and CNAME records are supported for local resolution.
+All other record types are forwarded to upstream DNS Servers.
 
 ## Example Usage
 
@@ -71,9 +76,14 @@ Create a records file:
     echo "local.dev A 127.0.0.1" > records.txt
     echo "www.local.dev CNAME local.dev" >> records.txt
 
-Start the server with local records:
+Update `/etc/resolvit/resolvit.conf` with the records path:
 
-    resolvit --listen 127.0.0.1:5300 --upstream 8.8.8.8:53 --resolve-from records.txt
+    [records]
+    resolve_from = "/path/to/records.txt"
+
+Start the server:
+
+    resolvit
 
 Test DNS resolution:
 
@@ -82,33 +92,27 @@ Test DNS resolution:
 
 ## Run from systemd
 
-Create a systemd service file `/etc/systemd/system/resolvit.service`:
+Create a systemd service file
+`/etc/systemd/system/resolvit.service`:
 
-```ini
-[Unit]
-Description=Resolvit DNS Server
-After=network.target
+    [Unit]
+    Description=Resolvit DNS Server
+    After=network.target
 
-[Service]
-EnvironmentFile=/etc/default/resolvit
-Environment="LOG_LEVEL=info"
-Type=simple
-ExecStart=/usr/local/bin/resolvit \
-  --listen 127.0.0.1:5300 \
-  --upstream 8.8.8.8:53 \
-  --log-level $LOG_LEVEL \
-  --resolve-from /var/lib/resolvit/records.txt
-ExecReload=/bin/kill -HUP $MAINPID
-Restart=on-failure
-User=resolvit
-Group=resolvit
-AmbientCapabilities=CAP_NET_BIND_SERVICE
+    [Service]
+    Type=simple
+    Environment="RESOLVIT_CONFIG=/etc/resolvit/resolvit.conf"
+    ExecStart=/usr/local/bin/resolvit
+    ExecReload=/bin/kill -HUP $MAINPID
+    Restart=on-failure
+    User=resolvit
+    Group=resolvit
+    AmbientCapabilities=CAP_NET_BIND_SERVICE
 
-[Install]
-WantedBy=multi-user.target
-```
+    [Install]
+    WantedBy=multi-user.target
 
-Consider replacing values by variables read from the specified environment file.
+If you store the config elsewhere, adjust `RESOLVIT_CONFIG` accordingly.
 
 Enable and start the service:
 
@@ -120,28 +124,38 @@ Enable and start the service:
 For local testing:
 
     VERSION=$(date +%Y.%m%d.%H%M%S)
-    go build -ldflags "-X resolvit/pkg/version.ResolvitVersion=$VERSION" -o resolvit
+    go build -ldflags \
+        "-X resolvit/pkg/version.ResolvitVersion=$VERSION" \
+        -o resolvit
 
 For a release build with version and optimization flags:
 
-    go build -ldflags "-s -w -X resolvit/pkg/version.ResolvitVersion=<VERSION>" -o resolvit
+    go build -ldflags \
+        "-s -w -X resolvit/pkg/version.ResolvitVersion=<VERSION>" \
+        -o resolvit
 
 ## Testing
 
 > [!TIP]
-> Use `./docker-run-tests.sh` to run all tests and quality gates in a single run.
+> Use `./docker-run-tests.sh` to run all tests and quality gates in a single
+> run.
 
 All parts are covered by go unit tests. Run them with:
 
     go test -race ./...
 
-CI/CD runs [jscpd](https://github.com/kucherenko/jscpd) a Copy/paste detector for programming source code.
-Before pushing, run it locally:
+CI/CD runs [jscpd](https://github.com/kucherenko/jscpd) a Copy/paste detector
+for programming source code. Before pushing, run it locally:
 
-    npx jscpd --pattern "**/*.go" --ignore "**/*_test.go" --threshold 0 --exitCode 1
+    npx jscpd \
+        --pattern "**/*.go" \
+        --ignore "**/*_test.go" \
+        --threshold 0 \
+        --exitCode 1
 
-Additionally, a python based stress test command-line utility `./dns-stress.py` is included.
-Python 3.7+ and `dnspython` is required. Use `./dns-stress.py --help`.  
+Additionally, a python based stress test command-line utility `./dns-stress.py`
+is included. Python 3.7+ and `dnspython` is required. Use
+`./dns-stress.py --help`.  
 Example usage:
 
     ./dns-stress.py --server 10.248.157.10 \

@@ -1,0 +1,140 @@
+#======================================================================================================================
+# FILE: resolvit.conf.example
+# DESCRIPTION: Example configuration file for the resolvit DNS server (TOML syntax).
+# LOCATION: Place this file at /etc/resolvit/resolvit.conf
+#======================================================================================================================
+
+[server]
+  ## Mandatory. No default. Listen address for UDP and TCP.
+  listen = "127.0.0.1:5300"
+
+[upstream]
+  ## Mandatory. No default. At least one upstream server is required.
+  servers = ["9.9.9.9:53", "1.1.1.1:53"]
+
+[logging]
+  ## Log level: debug, info, warn, error. Optional. Default: "info".
+  #level = "info"
+  ## Log destination: "stdout" or a file path. Optional. Default: "stdout".
+  #file = "stdout"
+  ## Max per-list parse errors to log before summary. Optional. Default: 20.
+  #blocklist_error_limit = 20
+
+[records]
+  ## Local records file for A/CNAME entries. Optional. Default: empty (disabled).
+  #resolve_from = "/var/lib/resolvit/records.txt"
+
+[filtering]
+  ## Enable content filtering. Optional. Default: false.
+  #enabled = false
+
+  ## Block subdomains of listed domains. Optional. Default: false.
+  #block_subdomains = false
+
+  ## Cache directory for downloaded lists. Optional. Default: "/var/cache/resolvit".
+  ## Created if missing; if creation fails, caching is disabled and filtering
+  ## still starts.
+  #cache_dir = "/var/cache/resolvit"
+
+  ## Refresh interval for list downloads. Optional. Default: "24h".
+  #update_interval = "24h"
+
+  ## Log blocked queries (privacy-sensitive) to a log file. Optional. Default: empty (disabled).
+  ## Log file contains UTC timestamp, client address, record type (A/AAAA/CNAME), and domain.
+  #blocked_log = "/var/log/resolvit-blocked.log"
+
+  [filtering.allowlist]
+    ## List of domains and hostnames that will always be resolved even if included in a block list.
+    ## Optional. Default: empty (disabled). Plain text file, one domain per line,
+    ## supports wildcards (e.g., *.example.com).
+    #path = "/etc/resolvit/allowlist.txt"
+
+  ## Allowed list identifiers, referenced from the built-in catalog:
+  ## blocklistproject_malware, blocklistproject_phishing, blocklistproject_scam, blocklistproject_porn,
+  ## blocklistproject_ads, stevenblack_adult, oisd_basic, adguard_dns, spamhaus_dbl, surbl.
+
+  [filtering.blocklistproject_malware]
+    ## Optional. Default: false (disabled).
+    ## List focused on blocking hostnames pointing to malware sites.
+    ## https://github.com/blocklistproject/Lists
+    ## https://blocklistproject.github.io/Lists/malware.txt
+    #enabled = true
+
+  [filtering.spamhaus_dbl]
+    ## Optional. Default: false (disabled). Paid list.
+    ## Domain Blocklist (DBL) provided by the Spamhaus Project.
+    ## https://www.spamhaus.org/blocklists/domain-blocklist/
+    #enabled = true
+
+    ## Basic auth for paid plans. Optional. Default: none.
+    #username = "account-id"
+    #password = "secret"
+
+  [filtering.blocklistproject_phishing]
+    ## Optional. Default: false (disabled).
+    ## List focused on blocking hostnames used for phishing.
+    ## https://github.com/blocklistproject/Lists
+    ## https://blocklistproject.github.io/Lists/phishing.txt
+    #enabled = true
+
+  [filtering.blocklistproject_scam]
+    ## Optional. Default: false (disabled).
+    ## List focused on blocking hostnames used for scams.
+    ## https://github.com/blocklistproject/Lists
+    ## https://blocklistproject.github.io/Lists/scam.txt
+    #enabled = true
+
+  [filtering.blocklistproject_porn]
+    ## Optional. Default: false (disabled).
+    ## List focused on blocking adult content domains.
+    ## https://github.com/blocklistproject/Lists
+    ## https://blocklistproject.github.io/Lists/porn.txt
+    #enabled = true
+
+  [filtering.blocklistproject_ads]
+    ## Optional. Default: false (disabled).
+    ## List focused on blocking advertising domains.
+    ## https://github.com/blocklistproject/Lists
+    ## https://blocklistproject.github.io/Lists/ads.txt
+    #enabled = true
+
+  [filtering.stevenblack_adult]
+    ## Optional. Default: false (disabled).
+    ## Adult content list without ad blocking.
+    ## https://github.com/StevenBlack/hosts
+    ## https://raw.githubusercontent.com/StevenBlack/hosts/master/alternates/porn-only/hosts
+    #enabled = true
+
+  [filtering.oisd_basic]
+    ## Optional. Default: false (disabled).
+    ## Ad and tracker blocking list.
+    ## https://oisd.nl
+    ## https://big.oisd.nl/
+    #enabled = true
+
+  [filtering.adguard_dns]
+    ## Optional. Default: false (disabled).
+    ## Ad and tracker blocking list.
+    ## https://adguard.com/en/adguard-dns/overview.html
+    ## https://adguardteam.github.io/AdGuardSDNSFilter/Filters/filter.txt
+    #enabled = true
+
+  [filtering.surbl]
+    ## Optional. Default: false (disabled). Paid list.
+    ## SURBL provides domain reputation data.
+    ## https://www.surbl.org/
+    #enabled = true
+
+    ## Token auth for paid plans. Optional. Default: none.
+    #token = "abc123"
+    #header = "Authorization"
+    #scheme = "Bearer"
+
+    ## URL override when a provider requires tokenized URLs. Optional. Default: none.
+    #url = "https://provider.example/list?token=abc123"
+
+  [filtering.custom]
+    ## Optional. Default: empty (disabled).
+    ## Use custom block lists (URL or file path). Plain text file, one domain per line,
+    ## supports wildcards (e.g., *.example.com).
+    #list = ["https://my-block-list.example.com", "/var/lib/dns-blocklists/my-list.txt"]

@@ -21,8 +21,23 @@ cat ./records.txt
 
 LOG=/tmp/resolvit.log
 test -e $LOG && rm -f $LOG
+# Create config file
+cat << EOF > /tmp/resolvit.conf
+[server]
+listen = "127.0.0.1:5300"
+
+[upstream]
+servers = ["9.9.9.9:53"]
+
+[logging]
+level = "info"
+file = "$LOG"
+
+[records]
+resolve_from = "./records.txt"
+EOF
 # Start in the background
-./resolvit --log-file $LOG --log-level info --resolve-from ./records.txt &
+RESOLVIT_CONFIG=/tmp/resolvit.conf ./resolvit &
 echo "✅ Started resolvit"
 echo ""
 

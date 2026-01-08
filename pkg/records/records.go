@@ -19,6 +19,7 @@ type Record struct {
 }
 
 var (
+	// The in-memory record store is safe for concurrent use via package functions.
 	records = make(map[string]Record)
 	mu      sync.RWMutex
 )
@@ -35,7 +36,10 @@ func Get(name string) *Record {
 	mu.RLock()
 	defer mu.RUnlock()
 
-	name = strings.ToLower(name)
+	name = normalizeName(name)
+	if name == "" {
+		return nil
+	}
 	if record, ok := records[name]; ok {
 		return &record
 	}
@@ -52,12 +56,16 @@ func Get(name string) *Record {
 	return nil
 }
 
-// GetAll returns the in-memory record map for inspection or testing.
+// GetAll returns a copy of the in-memory record map for inspection or testing.
 func GetAll() map[string]Record {
 	mu.RLock()
 	defer mu.RUnlock()
 
-	return records
+	copyMap := make(map[string]Record, len(records))
+	for name, record := range records {
+		copyMap[name] = record
+	}
+	return copyMap
 }
 
 // Add inserts or updates a record in the in-memory store.
@@ -65,9 +73,14 @@ func Add(name string, typ string, content string) {
 	mu.Lock()
 	defer mu.Unlock()
 
+	name = normalizeName(name)
+	if name == "" {
+		return
+	}
+
 	records[name] = Record{
 		Typ:     strings.ToLower(typ),
-		Content: content,
+		Content: strings.ToLower(content),
 	}
 }
 
@@ -111,9 +124,10 @@ func LoadFromFile(filename string, log *slog.Logger) error {
 			continue
 		}
 
-		name := strings.ToLower(fields[0])
-		if !strings.HasSuffix(name, ".") {
-			name = name + "."
+		name := normalizeName(fields[0])
+		if name == "" {
+			log.Warn("Invalid record name", "line", line)
+			continue
 		}
 
 		typ := strings.ToLower(fields[1])
@@ -141,6 +155,7 @@ func LoadFromFile(filename string, log *slog.Logger) error {
 	return scanner.Err()
 }
 
+// sanitizeRecordsPath rejects empty, root, or parent paths to avoid traversal.
 func sanitizeRecordsPath(path string) (string, error) {
 	if path == "" {
 		return "", fmt.Errorf("records path is empty")
@@ -156,4 +171,16 @@ func sanitizeRecordsPath(path string) (string, error) {
 	}
 
 	return clean, nil
+}
+
+func normalizeName(name string) string {
+	trimmed := strings.TrimSpace(name)
+	if trimmed == "" {
+		return ""
+	}
+	lower := strings.ToLower(trimmed)
+	if strings.HasSuffix(lower, ".") {
+		return lower
+	}
+	return lower + "."
 }

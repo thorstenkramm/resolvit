@@ -4,6 +4,7 @@ package server
 import (
 	"log/slog"
 	"resolvit/pkg/dnscache"
+	"resolvit/pkg/filtering"
 	"resolvit/pkg/forward"
 	"resolvit/pkg/handler"
 	"resolvit/pkg/version"
@@ -21,7 +22,7 @@ type Server struct {
 }
 
 // New constructs a Server that listens on addr and forwards to upstreams.
-func New(addr string, upstreams []string, log *slog.Logger) *Server {
+func New(addr string, upstreams []string, log *slog.Logger, filter *filtering.Filter) *Server {
 	cache := dnscache.New(log)
 	forwarder := forward.New(upstreams, log)
 
@@ -33,7 +34,7 @@ func New(addr string, upstreams []string, log *slog.Logger) *Server {
 		log:       log,
 	}
 
-	dnsHandler := handler.New(cache, forwarder, addr, log)
+	dnsHandler := handler.New(cache, forwarder, addr, log, filter)
 	dns.HandleFunc(".", dnsHandler.HandleDNSRequest)
 
 	return s

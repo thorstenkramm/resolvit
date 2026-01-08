@@ -28,7 +28,7 @@ func TestNewServer(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-			srv := New(tt.addr, tt.upstreams, logger)
+			srv := New(tt.addr, tt.upstreams, logger, nil)
 
 			if srv == nil {
 				t.Fatal("expected non-nil server")
@@ -55,7 +55,7 @@ func TestNewServer(t *testing.T) {
 
 func TestServerStart(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	srv := New("127.0.0.1:5355", []string{"8.8.8.8:53"}, logger)
+	srv := New("127.0.0.1:5355", []string{"8.8.8.8:53"}, logger, nil)
 
 	errChan := make(chan error)
 	go func() {

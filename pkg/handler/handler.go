@@ -5,9 +5,11 @@ import (
 	"log/slog"
 	"net"
 	"resolvit/pkg/dnscache"
+	"resolvit/pkg/filtering"
 	"resolvit/pkg/forward"
 	"resolvit/pkg/records"
 	"strconv"
+	"strings"
 
 	"github.com/miekg/dns"
 )
@@ -25,6 +27,7 @@ type Handler struct {
 	forwarder *forward.Forwarder
 	listen    string
 	log       *slog.Logger
+	filter    *filtering.Filter
 }
 
 type requestState struct {
@@ -35,17 +38,31 @@ type requestState struct {
 }
 
 // New wires the cache, forwarder, and logging dependencies into a Handler.
-func New(cache *dnscache.DNSCache, forwarder *forward.Forwarder, listen string, log *slog.Logger) *Handler {
+func New(cache *dnscache.DNSCache, forwarder *forward.Forwarder, listen string, log *slog.Logger, filter *filtering.Filter) *Handler {
 	return &Handler{
 		cache:     cache,
 		forwarder: forwarder,
 		listen:    listen,
 		log:       log,
+		filter:    filter,
 	}
 }
 
 // HandleDNSRequest processes a DNS message and writes the response to the client.
 func (h *Handler) HandleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
+	if r == nil || len(r.Question) == 0 {
+		msg := new(dns.Msg)
+		if r != nil {
+			msg.SetRcode(r, dns.RcodeFormatError)
+		} else {
+			msg.Rcode = dns.RcodeFormatError
+		}
+		if err := w.WriteMsg(msg); err != nil {
+			h.log.Error("failed to write format error", "error", err)
+		}
+		return
+	}
+
 	q := r.Question[0]
 	state := &requestState{
 		queryName: q.Name,
@@ -58,7 +75,7 @@ func (h *Handler) HandleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 	if w.RemoteAddr().Network() == "tcp" {
 		protocol = "tcp"
 	}
-	cacheKey := state.queryName + strconv.Itoa(int(q.Qtype)) + protocol
+	cacheKey := cacheKeyFor(state.queryName, q.Qtype, protocol)
 
 	// Extract the client's IP address
 	clientIP, _, err := net.SplitHostPort(w.RemoteAddr().String())
@@ -69,16 +86,25 @@ func (h *Handler) HandleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 
 	h.log.Debug("received query", "name", state.queryName, "client_ip", state.clientIP, "type", q.Qtype, "id", r.Id, "query", q.String())
 
-	// Try to serve response from cache
-	if msg := h.checkCache(cacheKey, r.Id); msg != nil {
-		h.log.Debug("cache hit", "name", state.queryName, "client_ip", state.clientIP)
+	// Try to serve response from local records
+	if msg := h.handleLocalRecord(state, r); msg != nil {
+		h.cache.Set(cacheKey, msg)
 		h.writeResponse(state, msg)
 		return
 	}
 
-	// Try to serve response from local records
-	if msg := h.handleLocalRecord(state, r); msg != nil {
-		h.cache.Set(cacheKey, msg)
+	if h.filter != nil && h.filter.ShouldBlock(state.queryName) {
+		h.filter.LogBlocked(w.RemoteAddr().String(), state.queryName, state.queryType)
+		msg := new(dns.Msg)
+		msg.SetRcode(r, dns.RcodeNameError)
+		msg.RecursionAvailable = true
+		h.writeResponse(state, msg)
+		return
+	}
+
+	// Try to serve response from cache
+	if msg := h.checkCache(cacheKey, r.Id); msg != nil {
+		h.log.Debug("cache hit", "name", state.queryName, "client_ip", state.clientIP)
 		h.writeResponse(state, msg)
 		return
 	}
@@ -103,6 +129,10 @@ func (h *Handler) checkCache(key string, id uint16) *dns.Msg {
 	response.Id = id
 	response.RecursionAvailable = true
 	return response
+}
+
+func cacheKeyFor(name string, qtype uint16, protocol string) string {
+	return strings.ToLower(name) + "|" + strconv.Itoa(int(qtype)) + "|" + protocol
 }
 
 func (h *Handler) handleLocalRecord(rs *requestState, r *dns.Msg) *dns.Msg {
