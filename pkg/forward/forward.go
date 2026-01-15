@@ -3,6 +3,7 @@ package forward
 
 import (
 	"log/slog"
+	"time"
 
 	"github.com/miekg/dns"
 )
@@ -10,6 +11,8 @@ import (
 // Forwarder sends DNS messages to a configured list of upstream resolvers.
 type Forwarder struct {
 	upstreamServers []string
+	udpClient       *dns.Client
+	tcpClient       *dns.Client
 	log             *slog.Logger
 }
 
@@ -20,6 +23,8 @@ func New(upstreamServers []string, log *slog.Logger) *Forwarder {
 	}
 	return &Forwarder{
 		upstreamServers: upstreamServers,
+		udpClient:       &dns.Client{Net: "udp", Timeout: 5 * time.Second},
+		tcpClient:       &dns.Client{Net: "tcp", Timeout: 5 * time.Second},
 		log:             log,
 	}
 }
@@ -40,8 +45,7 @@ func (f *Forwarder) Forward(r *dns.Msg) (*dns.Msg, error) {
 }
 
 func (f *Forwarder) exchange(server string, r *dns.Msg) (*dns.Msg, error) {
-	udpClient := dns.Client{Net: "udp"}
-	msg, _, err := udpClient.Exchange(r, server)
+	msg, _, err := f.udpClient.Exchange(r, server)
 	if err != nil {
 		return nil, err
 	}
@@ -49,8 +53,7 @@ func (f *Forwarder) exchange(server string, r *dns.Msg) (*dns.Msg, error) {
 		return msg, nil
 	}
 
-	tcpClient := dns.Client{Net: "tcp"}
-	tcpMsg, _, tcpErr := tcpClient.Exchange(r, server)
+	tcpMsg, _, tcpErr := f.tcpClient.Exchange(r, server)
 	if tcpErr != nil {
 		f.log.Warn("tcp retry failed, returning truncated udp response", "upstream", server, "error", tcpErr)
 		return msg, nil
