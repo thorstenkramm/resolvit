@@ -113,6 +113,11 @@ func (h *Handler) HandleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 	msg, err := h.forwarder.Forward(r)
 	if err != nil {
 		h.log.Error("upstream DNS servers failed", "error", err)
+		// Send SERVFAIL response to client instead of leaving them hanging
+		errMsg := new(dns.Msg)
+		errMsg.SetRcode(r, dns.RcodeServerFailure)
+		errMsg.RecursionAvailable = true
+		h.writeResponse(state, errMsg)
 		return
 	}
 
