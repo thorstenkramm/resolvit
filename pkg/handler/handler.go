@@ -25,7 +25,6 @@ const (
 type Handler struct {
 	cache     *dnscache.DNSCache
 	forwarder *forward.Forwarder
-	listen    string
 	log       *slog.Logger
 	filter    *filtering.Filter
 }
@@ -38,11 +37,10 @@ type requestState struct {
 }
 
 // New wires the cache, forwarder, and logging dependencies into a Handler.
-func New(cache *dnscache.DNSCache, forwarder *forward.Forwarder, listen string, log *slog.Logger, filter *filtering.Filter) *Handler {
+func New(cache *dnscache.DNSCache, forwarder *forward.Forwarder, log *slog.Logger, filter *filtering.Filter) *Handler {
 	return &Handler{
 		cache:     cache,
 		forwarder: forwarder,
-		listen:    listen,
 		log:       log,
 		filter:    filter,
 	}

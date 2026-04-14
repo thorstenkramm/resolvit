@@ -55,7 +55,7 @@ func TestHandleDNSRequestFiltering(t *testing.T) {
 
 	cache := dnscache.New(logger)
 	forwarder := forward.New([]string{stub.Addr}, logger)
-	h := New(cache, forwarder, "127.0.0.1:5300", logger, filter)
+	h := New(cache, forwarder, logger, filter)
 
 	records.Add("blocked.example.com.", records.A, "192.0.2.20")
 	cleanupPath := filepath.Join(tmpDir, "empty-records.txt")
