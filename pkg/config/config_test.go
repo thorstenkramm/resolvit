@@ -53,10 +53,10 @@ func TestValidateAddress(t *testing.T) {
 
 func TestListenBackwardCompatibility(t *testing.T) {
 	tests := []struct {
-		name       string
-		config     string
-		wantAddrs  []string
-		wantErr    bool
+		name      string
+		config    string
+		wantAddrs []string
+		wantErr   bool
 	}{
 		{
 			name: "single string (backward compat)",
