@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"reflect"
 	"strings"
 	"time"
 
@@ -31,7 +32,7 @@ type Config struct {
 
 // ServerConfig holds server-level settings.
 type ServerConfig struct {
-	Listen string `mapstructure:"listen"`
+	Listen []string `mapstructure:"listen"`
 }
 
 // UpstreamConfig holds upstream DNS resolver settings.
@@ -139,7 +140,12 @@ func loadConfig() (*Config, error) {
 	}
 
 	var cfg Config
-	if err := v.Unmarshal(&cfg); err != nil {
+	if err := v.Unmarshal(&cfg, viper.DecodeHook(
+		mapstructure.ComposeDecodeHookFunc(
+			stringToStringSliceHookFunc(),
+			mapstructure.StringToTimeDurationHookFunc(),
+		),
+	)); err != nil {
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
 
@@ -183,11 +189,13 @@ func validateConfig(cfg *Config) error {
 		return err
 	}
 
-	if cfg.Server.Listen == "" {
+	if len(cfg.Server.Listen) == 0 {
 		return errors.New("server.listen is required")
 	}
-	if err := ValidateAddress(cfg.Server.Listen); err != nil {
-		return fmt.Errorf("invalid server.listen: %w", err)
+	for _, addr := range cfg.Server.Listen {
+		if err := ValidateAddress(addr); err != nil {
+			return fmt.Errorf("invalid server.listen %q: %w", addr, err)
+		}
 	}
 
 	if len(cfg.Upstream.Servers) == 0 {
@@ -214,6 +222,19 @@ func validateConfig(cfg *Config) error {
 	}
 
 	return nil
+}
+
+// stringToStringSliceHookFunc returns a decode hook that converts a single
+// string into a []string with one element. This provides backward compatibility
+// so that listen = "127.0.0.1:53" still works alongside the new array syntax
+// listen = ["127.0.0.1:53", "192.168.1.1:53"].
+func stringToStringSliceHookFunc() mapstructure.DecodeHookFuncType {
+	return func(from reflect.Type, to reflect.Type, data interface{}) (interface{}, error) {
+		if from.Kind() == reflect.String && to.Kind() == reflect.Slice && to.Elem().Kind() == reflect.String {
+			return []string{data.(string)}, nil
+		}
+		return data, nil
+	}
 }
 
 func parseListConfigs(v *viper.Viper) (map[string]filtering.ListConfig, error) {

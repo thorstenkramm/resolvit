@@ -5,8 +5,9 @@
 #======================================================================================================================
 
 [server]
-  ## Mandatory. No default. Listen address for UDP and TCP.
-  listen = "127.0.0.1:5300"
+  ## Mandatory. No default. Listen addresses for UDP and TCP.
+  ## A single address or multiple addresses can be specified.
+  listen = ["127.0.0.1:5300"]
 
 [upstream]
   ## Mandatory. No default. At least one upstream server is required.

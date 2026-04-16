@@ -55,7 +55,7 @@ nochange.example.com A 192.168.100.100`)
 
 	configPath := filepath.Join(tmpDir, "resolvit.conf")
 	configContents := fmt.Sprintf(`[server]
-listen = %q
+listen = [%q]
 
 [upstream]
 servers = [%q]
@@ -287,7 +287,7 @@ test3.example.com A 192.168.1.3
 
 	configPath := filepath.Join(tmpDir, "resolvit.conf")
 	configContents := fmt.Sprintf(`[server]
-listen = %q
+listen = [%q]
 
 [upstream]
 servers = [%q]
