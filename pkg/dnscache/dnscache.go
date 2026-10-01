@@ -40,21 +40,35 @@ func (c *DNSCache) Get(key string) (*dns.Msg, bool) {
 		return nil, false
 	}
 	if time.Now().After(entry.ExpiresAt) {
-		c.log.Debug("cache expired", "name", entry.Msg.Question[0].Name)
+		c.log.Debug("cache expired", "key", key)
 		return nil, false
 	}
 	return entry.Msg, true
 }
 
-// Set stores a DNS response with an expiration derived from the record TTL.
+// Set stores a copy of a DNS response with an expiration derived from the record TTL.
+// Responses without a question section and responses with an rcode other than
+// NOERROR or NXDOMAIN (e.g. SERVFAIL, REFUSED, FORMERR from a struggling upstream) are not cached.
 func (c *DNSCache) Set(key string, msg *dns.Msg) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	if !cacheable(msg) {
+		c.log.Debug("response not cacheable", "key", key)
+		return
+	}
 	ttl := time.Duration(60) * time.Second
 	if len(msg.Answer) > 0 {
 		ttl = time.Duration(msg.Answer[0].Header().Ttl) * time.Second
 	}
-	c.cache[key] = CacheEntry{Msg: msg, ExpiresAt: time.Now().Add(ttl)}
+	entry := CacheEntry{Msg: msg.Copy(), ExpiresAt: time.Now().Add(ttl)}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.cache[key] = entry
+}
+
+func cacheable(msg *dns.Msg) bool {
+	if msg == nil || len(msg.Question) == 0 {
+		return false
+	}
+	return msg.Rcode == dns.RcodeSuccess || msg.Rcode == dns.RcodeNameError
 }
 
 // Clear drops the entire cache and logs the action.
