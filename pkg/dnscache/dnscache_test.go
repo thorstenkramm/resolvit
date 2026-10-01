@@ -81,3 +81,70 @@ func createTestMsg(domain, ip string, ttl uint32) *dns.Msg {
 	}
 	return msg
 }
+
+func TestDNSCacheSetSkipsUncacheable(t *testing.T) {
+	noQuestion := createTestMsg("noquestion.example.com.", "192.0.2.1", 60)
+	noQuestion.Question = nil
+
+	servfail := createTestMsg("servfail.example.com.", "192.0.2.2", 60)
+	servfail.Rcode = dns.RcodeServerFailure
+
+	refused := createTestMsg("refused.example.com.", "192.0.2.3", 60)
+	refused.Rcode = dns.RcodeRefused
+
+	nxdomain := new(dns.Msg)
+	nxdomain.SetQuestion("nonexistent.example.com.", dns.TypeA)
+	nxdomain.Rcode = dns.RcodeNameError
+
+	tests := []struct {
+		name    string
+		msg     *dns.Msg
+		wantHit bool
+	}{
+		{name: "nil message", msg: nil, wantHit: false},
+		{name: "empty question section", msg: noQuestion, wantHit: false},
+		{name: "SERVFAIL", msg: servfail, wantHit: false},
+		{name: "REFUSED", msg: refused, wantHit: false},
+		{name: "NXDOMAIN", msg: nxdomain, wantHit: true},
+		{name: "NOERROR", msg: createTestMsg("example.com.", "93.184.216.34", 60), wantHit: true},
+	}
+
+	cache := New(slog.Default())
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cache.Set(tt.name, tt.msg)
+			if _, found := cache.Get(tt.name); found != tt.wantHit {
+				t.Errorf("cache hit = %v, want %v", found, tt.wantHit)
+			}
+		})
+	}
+}
+
+// TestDNSCacheGetExpiredWithoutQuestion reproduces the panic from 0.0.7: an expired entry
+// whose message has no question section must not crash the debug log in Get.
+func TestDNSCacheGetExpiredWithoutQuestion(t *testing.T) {
+	cache := New(slog.Default())
+	cache.cache["broken"] = CacheEntry{Msg: new(dns.Msg), ExpiresAt: time.Now().Add(-time.Second)}
+
+	if _, found := cache.Get("broken"); found {
+		t.Error("expected expired entry to be a cache miss")
+	}
+}
+
+func TestDNSCacheSetStoresCopy(t *testing.T) {
+	cache := New(slog.Default())
+	msg := createTestMsg("copy.example.com.", "192.0.2.4", 60)
+	cache.Set("copy", msg)
+
+	msg.Question = nil
+	msg.Answer = nil
+
+	cached, found := cache.Get("copy")
+	if !found {
+		t.Fatal("expected cache hit")
+	}
+	if len(cached.Question) != 1 || len(cached.Answer) != 1 {
+		t.Errorf("cached message was modified through caller pointer: %d questions, %d answers",
+			len(cached.Question), len(cached.Answer))
+	}
+}

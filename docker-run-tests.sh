@@ -54,7 +54,7 @@ docker run --rm --name "JSCPD_Node20" \
   -v "${ROOT_DIR}:/app" \
   -w /app \
   node:20 \
-  bash -c 'npx jscpd --pattern "**/*.go" --ignore "**/*_test.go" --threshold 0 --exitCode 1'
+  bash -c 'npx jscpd@4 --pattern "**/*.go" --ignore "**/*_test.go" --threshold 0 --exitCode 1'
 echo " ✅ jscpd succeeded"
 
 echo "🚚 Running stress-test script inside Python 3.14 Docker image..."

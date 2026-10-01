@@ -20,4 +20,4 @@ jobs:
           node-version: '20'
 
       - name: Run jscpd duplication check
-        run: npx jscpd --pattern "**/*.go" --ignore "**/*_test.go" --threshold 0 --exitCode 1
+        run: npx jscpd@4 --pattern "**/*.go" --ignore "**/*_test.go" --threshold 0 --exitCode 1
