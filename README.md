@@ -147,7 +147,7 @@ All parts are covered by go unit tests. Run them with:
 CI/CD runs [jscpd](https://github.com/kucherenko/jscpd) a Copy/paste detector
 for programming source code. Before pushing, run it locally:
 
-    npx jscpd \
+    npx jscpd@4 \
         --pattern "**/*.go" \
         --ignore "**/*_test.go" \
         --threshold 0 \

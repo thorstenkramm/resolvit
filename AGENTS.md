@@ -10,7 +10,7 @@
 - `go build -ldflags "-X resolvit/pkg/version.ResolvitVersion=$VERSION" -o resolvit`: build with an explicit version string.
 - `go test -race ./...`: run all unit tests with the race detector.
 - `./docker-run-tests.sh`: run golangci-lint, unit tests, jscpd, and the stress test in Docker.
-- `npx jscpd --pattern "**/*.go" --ignore "**/*_test.go" --threshold 0 --exitCode 1`: copy/paste detection, mirrors CI.
+- `npx jscpd@4 --pattern "**/*.go" --ignore "**/*_test.go" --threshold 0 --exitCode 1`: copy/paste detection, mirrors CI.
 - `./resolvit --listen 127.0.0.1:5300 --upstream 8.8.8.8:53 --resolve-from records.txt`: run locally (or use `go run .`).
 
 ## Coding Style & Naming Conventions
