@@ -79,6 +79,13 @@ func (c *DNSCache) Set(key string, msg *dns.Msg) {
 	}
 	now := c.now()
 	entry := CacheEntry{Msg: msg.Copy(), StoredAt: now, ExpiresAt: now.Add(ttl)}
+	// Negative answers must advertise the effective SOA TTL, so downstream caches
+	// count down from the same lifetime we use locally (RFC 2308).
+	for _, rr := range entry.Msg.Ns {
+		if soa, ok := rr.(*dns.SOA); ok {
+			soa.Hdr.Ttl = min(soa.Hdr.Ttl, soa.Minttl)
+		}
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.cache[key] = entry

@@ -314,6 +314,43 @@ func TestDNSCacheNegativeAnswerUsesSOAMinimum(t *testing.T) {
 	}
 }
 
+func TestDNSCacheNegativeAnswerReturnsRemainingTTL(t *testing.T) {
+	for _, rcode := range []int{dns.RcodeNameError, dns.RcodeSuccess} {
+		t.Run(dns.RcodeToString[rcode], func(t *testing.T) {
+			cache, clock := newTestCache()
+			msg := newNXDomainMsg("missing.example.com.", 3600, 300)
+			msg.Rcode = rcode
+			cache.Set("key", msg)
+
+			storedAt := clock.t
+			for _, tt := range []struct {
+				age     time.Duration
+				wantTTL uint32
+			}{
+				{age: 0, wantTTL: 300},
+				{age: 100 * time.Second, wantTTL: 200},
+				{age: 299 * time.Second, wantTTL: 1},
+			} {
+				clock.t = storedAt.Add(tt.age)
+				cached, found := cache.Get("key")
+				if !found {
+					t.Fatalf("expected cache hit at age %v", tt.age)
+				}
+				soa := cached.Ns[0].(*dns.SOA)
+				if soa.Hdr.Ttl != tt.wantTTL {
+					t.Errorf("SOA TTL at age %v = %d, want %d", tt.age, soa.Hdr.Ttl, tt.wantTTL)
+				}
+				if soa.Minttl != 300 {
+					t.Errorf("SOA MINIMUM = %d, want 300", soa.Minttl)
+				}
+			}
+			if got := msg.Ns[0].Header().Ttl; got != 3600 {
+				t.Errorf("caller SOA TTL = %d, want 3600", got)
+			}
+		})
+	}
+}
+
 func TestDNSCacheSkipsZeroTTL(t *testing.T) {
 	cache, _ := newTestCache()
 	cache.Set("key", createTestMsg("example.com.", "192.0.2.1", 0))
