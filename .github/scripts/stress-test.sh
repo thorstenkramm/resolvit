@@ -6,6 +6,9 @@ if which apt-get; then
     sudo apt-get install -y -f python3-dnspython
 fi
 
+# Repeatedly verify cached negative TTLs with a deterministic clock before load testing.
+go test -race -count=100 ./pkg/dnscache -run '^TestDNSCacheNegativeAnswer'
+
 # Build the software with race condition detector enabled.
 go build -race -o ./resolvit main.go
 echo "✅ Build resolvit"

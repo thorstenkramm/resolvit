@@ -19,8 +19,11 @@ ability to resolve some records locally.
 Local records are read to memory on service start. Changes to the records file
 require a service reload.
 
-Records remain in the cache according to the TTL given by the upstream server.  
-The cache is in-memory. It gets lost on service restart.
+Records remain in the cache according to the lowest TTL given by the upstream server
+(for negative answers the SOA minimum is honoured as well). Responses served from the cache
+carry the remaining TTL, so downstream caches never keep a record longer than the upstream allows.
+Expired entries are removed from memory periodically.  
+The cache is in-memory. It gets lost on service restart or reload.
 
 ## Filtering
 

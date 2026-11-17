@@ -124,11 +124,11 @@ func (h *Handler) HandleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 }
 
 func (h *Handler) checkCache(key string, id uint16) *dns.Msg {
-	cachedMsg, found := h.cache.Get(key)
+	// Get already returns a private copy with TTLs reduced by the time spent in the cache.
+	response, found := h.cache.Get(key)
 	if !found {
 		return nil
 	}
-	response := cachedMsg.Copy()
 	response.Id = id
 	response.RecursionAvailable = true
 	return response
