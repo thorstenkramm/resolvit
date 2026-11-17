@@ -9,12 +9,12 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: 1.25.1
+          go-version-file: go.mod
 
       - name: golangci-lint
         shell: bash
         run: |
-          GCI_VERSION=2.5.0
+          GCI_VERSION=2.15.0
           mkdir ~/bin
           curl -L https://github.com/golangci/golangci-lint/releases/download/v${GCI_VERSION}/golangci-lint-${GCI_VERSION}-linux-amd64.tar.gz -o /tmp/golangci-lint-${GCI_VERSION}-linux-amd64.tar.gz
           tar xzf /tmp/golangci-lint-${GCI_VERSION}-linux-amd64.tar.gz -C /tmp/

@@ -61,7 +61,10 @@ func StartDNSStub(t *testing.T, handler dns.Handler) *DNSStub {
 	t.Cleanup(func() {
 		stub.Close()
 		select {
-		case <-errCh:
+		case err := <-errCh:
+			if err != nil {
+				t.Errorf("dns stub server: %v", err)
+			}
 		default:
 		}
 	})
