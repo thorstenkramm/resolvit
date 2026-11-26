@@ -3,19 +3,37 @@ package records
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
+)
+
+// MaxCNAMEChain is the highest number of local CNAME records followed for one question.
+const MaxCNAMEChain = 16
+
+var (
+	// ErrCNAMELoop is returned when a local CNAME chain visits a name a second time.
+	ErrCNAMELoop = errors.New("cname loop in local records")
+	// ErrCNAMEChainTooLong is returned when a local CNAME chain exceeds MaxCNAMEChain.
+	ErrCNAMEChainTooLong = errors.New("local cname chain too long")
 )
 
 // Record represents a single DNS record entry.
 type Record struct {
 	Typ     string
 	Content string
+}
+
+// Link is one CNAME record of a local chain. Name and Target are lower case and end with a dot.
+type Link struct {
+	Name   string
+	Target string
 }
 
 var (
@@ -36,7 +54,12 @@ func Get(name string) *Record {
 	mu.RLock()
 	defer mu.RUnlock()
 
-	name = normalizeName(name)
+	return getLocked(normalizeName(name))
+}
+
+// getLocked looks up a record by its normalised name, supporting wildcard matches.
+// The caller must hold the lock.
+func getLocked(name string) *Record {
 	if name == "" {
 		return nil
 	}
@@ -54,6 +77,65 @@ func Get(name string) *Record {
 	}
 
 	return nil
+}
+
+// FollowCNAME follows the local CNAME records starting at name, supporting wildcard matches.
+// It returns the CNAME records in the order they were followed and the record that ended the chain.
+// That record is the first one that is not a CNAME. It is nil when the chain ends at a name without
+// a local record, which is the target of the last link or, without any link, name itself.
+// A chain that visits a name twice yields ErrCNAMELoop, a chain of more than MaxCNAMEChain
+// CNAME records yields ErrCNAMEChainTooLong.
+// FollowCNAME is safe for concurrent use. All steps see the same set of records.
+func FollowCNAME(name string) ([]Link, *Record, error) {
+	mu.RLock()
+	defer mu.RUnlock()
+
+	return followLocked(normalizeName(name))
+}
+
+// followLocked implements FollowCNAME for a normalised name.
+// The caller must hold the lock.
+func followLocked(name string) ([]Link, *Record, error) {
+	var links []Link
+	visited := make(map[string]struct{})
+
+	for {
+		record := getLocked(name)
+		if record == nil || record.Typ != CNAME {
+			return links, record, nil
+		}
+		if len(links) == MaxCNAMEChain {
+			return nil, nil, fmt.Errorf("%w: more than %d records, stopped at %s", ErrCNAMEChainTooLong, MaxCNAMEChain, name)
+		}
+
+		// Names are remembered, not records: two names may match the same wildcard without forming a loop.
+		visited[name] = struct{}{}
+		target := normalizeName(record.Content)
+		links = append(links, Link{Name: name, Target: target})
+		if _, seen := visited[target]; seen {
+			return nil, nil, fmt.Errorf("%w: %s is visited twice", ErrCNAMELoop, target)
+		}
+		name = target
+	}
+}
+
+// warnUnresolvableCNAMEsLocked logs a warning for every CNAME record whose chain loops or is too long.
+// Wildcard records are walked from their own name: the exact lookup finds the wildcard record itself.
+// The caller must hold the lock.
+func warnUnresolvableCNAMEsLocked(log *slog.Logger) {
+	names := make([]string, 0, len(records))
+	for name, record := range records {
+		if record.Typ == CNAME {
+			names = append(names, name)
+		}
+	}
+	slices.Sort(names)
+
+	for _, name := range names {
+		if _, _, err := followLocked(name); err != nil {
+			log.Warn("CNAME record cannot be resolved", "name", name, "error", err)
+		}
+	}
 }
 
 // GetAll returns a copy of the in-memory record map for inspection or testing.
@@ -149,6 +231,8 @@ func LoadFromFile(filename string, log *slog.Logger) error {
 			Content: content,
 		}
 	}
+
+	warnUnresolvableCNAMEsLocked(log)
 
 	log.Info("Loaded records", "from_file", resolvedPath, "num_records", len(records))
 
