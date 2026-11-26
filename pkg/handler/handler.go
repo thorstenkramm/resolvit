@@ -167,6 +167,12 @@ func (h *Handler) handleCNAME(rs *requestState, r *dns.Msg, rec *records.Record)
 		Target: rec.Content + ".",
 	})
 
+	// A CNAME question is answered by the CNAME itself, the chain is not followed
+	if rs.queryType == dns.TypeCNAME {
+		msg.Authoritative = true
+		return msg
+	}
+
 	// Follow CNAME chain locally
 	target := rec.Content + "."
 	for {
@@ -183,10 +189,14 @@ func (h *Handler) handleCNAME(rs *requestState, r *dns.Msg, rec *records.Record)
 			})
 			target = targetRec.Content + "."
 		case records.A:
-			msg.Answer = append(msg.Answer, &dns.A{
-				Hdr: dns.RR_Header{Name: target, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: DefaultTTL},
-				A:   net.ParseIP(targetRec.Content),
-			})
+			// Local targets only carry A records. For any other type the chain ends
+			// here with an empty rest (NOERROR/NODATA), never with the A record.
+			if rs.queryType == dns.TypeA {
+				msg.Answer = append(msg.Answer, &dns.A{
+					Hdr: dns.RR_Header{Name: target, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: DefaultTTL},
+					A:   net.ParseIP(targetRec.Content),
+				})
+			}
 			msg.Authoritative = true
 			return msg
 		}
@@ -194,7 +204,8 @@ func (h *Handler) handleCNAME(rs *requestState, r *dns.Msg, rec *records.Record)
 
 	// If chain ends with non-local record, forward the query
 	targetQuery := new(dns.Msg)
-	targetQuery.SetQuestion(target, dns.TypeA)
+	// Keep the type of the original question, e.g. AAAA must not be answered with A
+	targetQuery.SetQuestion(target, rs.queryType)
 	response, err := h.forwarder.Forward(targetQuery)
 	if err != nil {
 		h.log.Warn("failed to forward CNAME target resolution", "error", err)
