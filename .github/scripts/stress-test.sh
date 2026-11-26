@@ -20,6 +20,7 @@ cat << EOF > ./records.txt
 test.example.com A 192.168.1.1
 loop-a.test.example.com CNAME loop-b.test.example.com
 loop-b.test.example.com CNAME loop-a.test.example.com
+dangling.test.example.com CNAME does-not-exist.invalid
 EOF
 
 cat ./records.txt
@@ -70,6 +71,14 @@ echo "🚛 Starting AAAA stress test ..."
   --qtype AAAA --expect-empty \
   --num-requests 5000 --concurrency 100
 echo "✅ AAAA stress test completed"
+echo ""
+
+# Only a few requests: this is the one run that reaches the upstream server, and it does so for every request.
+echo "🚛 Checking error code of a CNAME to a missing name ..."
+./dns-stress.py --server 127.0.0.1 --port 5300 --query dangling.test.example.com \
+  --expect-rcode NXDOMAIN \
+  --num-requests 20 --concurrency 2
+echo "✅ NXDOMAIN passed through"
 echo ""
 
 # Run stress test

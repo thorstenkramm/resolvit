@@ -229,12 +229,17 @@ func (h *Handler) handleCNAME(rs *requestState, r *dns.Msg, links []records.Link
 	// Keep the type of the original question, e.g. AAAA must not be answered with A
 	targetQuery.SetQuestion(target, rs.queryType)
 	response, err := h.forwarder.Forward(targetQuery)
-	if err != nil {
-		h.log.Warn("failed to forward CNAME target resolution", "error", err)
-		return msg
+	if err != nil || response == nil {
+		h.log.Warn("failed to forward CNAME target resolution", "target", target, "error", err)
+		return servfail(r)
 	}
 
+	// The result of a CNAME chain is the result for its last name (RFC 6604): take over the response code
+	// and the authority section, which holds the SOA record of a negative answer (RFC 2308).
+	// The additional section stays behind, its EDNS OPT record belongs to the upstream exchange.
+	msg.Rcode = response.Rcode
 	msg.Answer = append(msg.Answer, response.Answer...)
+	msg.Ns = append(msg.Ns, response.Ns...)
 	return msg
 }
 

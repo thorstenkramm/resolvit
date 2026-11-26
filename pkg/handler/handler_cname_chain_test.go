@@ -2,6 +2,7 @@ package handler
 
 import (
 	"fmt"
+	"net"
 	"resolvit/internal/testutil"
 	"resolvit/pkg/dnscache"
 	"resolvit/pkg/forward"
@@ -124,5 +125,136 @@ func TestCNAMEQuestionForLoopingName(t *testing.T) {
 	}
 	if cname.Target != "chain-loop-b.example.com." {
 		t.Errorf("got target %q, want chain-loop-b.example.com.", cname.Target)
+	}
+}
+
+// TestCNAMEUpstreamResult verifies that the upstream result for the last name of a local CNAME
+// chain reaches the client: the response code and the authority section are passed through,
+// and the local CNAME records stay in the answer section.
+func TestCNAMEUpstreamResult(t *testing.T) {
+	records.Add("rc-missing.example.com.", records.CNAME, "missing.example.net")
+	records.Add("rc-missing-first.example.com.", records.CNAME, "rc-missing.example.com")
+	records.Add("rc-broken.example.com.", records.CNAME, "broken.example.net")
+	records.Add("rc-v4only.example.com.", records.CNAME, "v4only.example.net")
+
+	soa := testutil.SOARecord("example.net.", 30)
+	responses := map[string]testutil.Response{
+		testutil.Key("missing.example.net.", dns.TypeA): {Rcode: dns.RcodeNameError, Ns: []dns.RR{soa}},
+		testutil.Key("broken.example.net.", dns.TypeA):  {Rcode: dns.RcodeServerFailure},
+		testutil.Key("v4only.example.net.", dns.TypeA): {
+			Answers: []dns.RR{testutil.ARecord("v4only.example.net.", "198.51.100.2")},
+		},
+		// Name exists, but has no AAAA record: NOERROR with the SOA record only
+		testutil.Key("v4only.example.net.", dns.TypeAAAA): {Ns: []dns.RR{soa}},
+	}
+	stub := testutil.StartDNSStub(t, testutil.FixedHandler(responses))
+
+	log := logger.Setup("debug", "stdout")
+	cache := dnscache.New(log)
+	h := New(cache, forward.New([]string{stub.Addr}, log), log, nil)
+
+	tests := []struct {
+		name       string
+		query      string
+		qtype      uint16
+		wantRcode  int
+		wantTypes  []uint16
+		wantSOA    bool
+		wantCached bool
+	}{
+		{"target does not exist", "rc-missing.example.com.", dns.TypeA,
+			dns.RcodeNameError, []uint16{dns.TypeCNAME}, true, true},
+		{"two local CNAMEs, target does not exist", "rc-missing-first.example.com.", dns.TypeA,
+			dns.RcodeNameError, []uint16{dns.TypeCNAME, dns.TypeCNAME}, true, true},
+		{"upstream fails for the target", "rc-broken.example.com.", dns.TypeA,
+			dns.RcodeServerFailure, []uint16{dns.TypeCNAME}, false, false},
+		{"target has no record of the type", "rc-v4only.example.com.", dns.TypeAAAA,
+			dns.RcodeSuccess, []uint16{dns.TypeCNAME}, true, true},
+		{"target has a record (regression)", "rc-v4only.example.com.", dns.TypeA,
+			dns.RcodeSuccess, []uint16{dns.TypeCNAME, dns.TypeA}, false, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := new(dns.Msg)
+			req.SetQuestion(tt.query, tt.qtype)
+			w := &testResponseWriter{}
+			h.HandleDNSRequest(w, req)
+
+			if w.msg == nil {
+				t.Fatal("no response message received")
+			}
+			if w.msg.Rcode != tt.wantRcode {
+				t.Errorf("got rcode %s, want %s", dns.RcodeToString[w.msg.Rcode], dns.RcodeToString[tt.wantRcode])
+			}
+			if len(w.msg.Answer) != len(tt.wantTypes) {
+				t.Fatalf("got %d answers %v, want types %v", len(w.msg.Answer), w.msg.Answer, tt.wantTypes)
+			}
+			for i, rr := range w.msg.Answer {
+				if rr.Header().Rrtype != tt.wantTypes[i] {
+					t.Errorf("answer %d: got type %s, want %s", i,
+						dns.TypeToString[rr.Header().Rrtype], dns.TypeToString[tt.wantTypes[i]])
+				}
+			}
+
+			wantNs := 0
+			if tt.wantSOA {
+				wantNs = 1
+			}
+			if len(w.msg.Ns) != wantNs {
+				t.Fatalf("got %d authority records %v, want %d", len(w.msg.Ns), w.msg.Ns, wantNs)
+			}
+			if tt.wantSOA {
+				if _, ok := w.msg.Ns[0].(*dns.SOA); !ok {
+					t.Errorf("got authority record of type %T, want SOA", w.msg.Ns[0])
+				}
+			}
+			if len(w.msg.Extra) != 0 {
+				t.Errorf("got %d additional records %v, want none", len(w.msg.Extra), w.msg.Extra)
+			}
+
+			// Only NOERROR and NXDOMAIN may be stored, a failure must be asked again
+			if _, found := cache.Get(cacheKeyFor(tt.query, tt.qtype, "udp")); found != tt.wantCached {
+				t.Errorf("got cached %v, want %v", found, tt.wantCached)
+			}
+		})
+	}
+}
+
+// TestCNAMEUpstreamUnreachable verifies that a failed upstream exchange for the target of a local
+// CNAME is answered with SERVFAIL, like any other question the upstream cannot answer.
+func TestCNAMEUpstreamUnreachable(t *testing.T) {
+	records.Add("rc-unreachable.example.com.", records.CNAME, "target.example.net")
+
+	// A closed local port fails at once, an unreachable address only after the forwarder's timeout
+	conn, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen udp: %v", err)
+	}
+	closedAddr := conn.LocalAddr().String()
+	if err := conn.Close(); err != nil {
+		t.Fatalf("close udp: %v", err)
+	}
+
+	log := logger.Setup("debug", "stdout")
+	cache := dnscache.New(log)
+	h := New(cache, forward.New([]string{closedAddr}, log), log, nil)
+
+	req := new(dns.Msg)
+	req.SetQuestion("rc-unreachable.example.com.", dns.TypeA)
+	w := &testResponseWriter{}
+	h.HandleDNSRequest(w, req)
+
+	if w.msg == nil {
+		t.Fatal("no response message received")
+	}
+	if w.msg.Rcode != dns.RcodeServerFailure {
+		t.Errorf("got rcode %s, want SERVFAIL", dns.RcodeToString[w.msg.Rcode])
+	}
+	if len(w.msg.Answer) != 0 {
+		t.Errorf("got %d answers %v, want none", len(w.msg.Answer), w.msg.Answer)
+	}
+	if _, found := cache.Get(cacheKeyFor("rc-unreachable.example.com.", dns.TypeA, "udp")); found {
+		t.Error("SERVFAIL answer was cached")
 	}
 }
