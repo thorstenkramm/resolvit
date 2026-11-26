@@ -112,10 +112,7 @@ func (h *Handler) HandleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 	if err != nil || msg == nil {
 		h.log.Error("upstream DNS servers failed", "error", err)
 		// Send SERVFAIL response to client instead of leaving them hanging
-		errMsg := new(dns.Msg)
-		errMsg.SetRcode(r, dns.RcodeServerFailure)
-		errMsg.RecursionAvailable = true
-		h.writeResponse(state, errMsg)
+		h.writeResponse(state, servfail(r))
 		return
 	}
 
@@ -138,8 +135,44 @@ func cacheKeyFor(name string, qtype uint16, protocol string) string {
 	return strings.ToLower(name) + "|" + strconv.Itoa(int(qtype)) + "|" + protocol
 }
 
+// servfail builds the SERVFAIL reply to r.
+func servfail(r *dns.Msg) *dns.Msg {
+	msg := new(dns.Msg)
+	msg.SetRcode(r, dns.RcodeServerFailure)
+	msg.RecursionAvailable = true
+	return msg
+}
+
+func cnameRR(name string, target string) *dns.CNAME {
+	return &dns.CNAME{
+		Hdr:    dns.RR_Header{Name: name, Rrtype: dns.TypeCNAME, Class: dns.ClassINET, Ttl: DefaultTTL},
+		Target: target,
+	}
+}
+
 func (h *Handler) handleLocalRecord(rs *requestState, r *dns.Msg) *dns.Msg {
-	rec := records.Get(rs.queryName)
+	// A CNAME question is answered by the CNAME itself, the chain is not followed
+	if rs.queryType == dns.TypeCNAME {
+		return h.handleRecord(rs, r, records.Get(rs.queryName))
+	}
+
+	// The chain is read in one step, so a reload of the records cannot change it halfway
+	links, end, err := records.FollowCNAME(rs.queryName)
+	if err != nil {
+		// Logged at debug level only: the loader has already warned, and a warning per query lets clients flood the log
+		h.log.Debug("failed to follow local CNAME chain", "name", rs.queryName, "client_ip", rs.clientIP, "error", err)
+		return servfail(r)
+	}
+	if len(links) == 0 {
+		return h.handleRecord(rs, r, end)
+	}
+
+	h.log.Debug("found local record", "name", rs.queryName, "type", records.CNAME, "content", links[0].Target)
+	return h.handleCNAME(rs, r, links, end)
+}
+
+// handleRecord answers from the record of the question name alone, without following a CNAME chain.
+func (h *Handler) handleRecord(rs *requestState, r *dns.Msg, rec *records.Record) *dns.Msg {
 	if rec == nil {
 		h.log.Debug("no local record found", "name", rs.queryName, "client_ip", rs.clientIP)
 		return nil
@@ -149,57 +182,46 @@ func (h *Handler) handleLocalRecord(rs *requestState, r *dns.Msg) *dns.Msg {
 
 	switch rec.Typ {
 	case records.CNAME:
-		return h.handleCNAME(rs, r, rec)
+		msg := new(dns.Msg)
+		msg.SetReply(r)
+		msg.RecursionAvailable = true
+		msg.Authoritative = true
+		msg.Answer = append(msg.Answer, cnameRR(rs.queryName, dns.Fqdn(rec.Content)))
+		return msg
 	case records.A:
 		return h.handleA(rs, r, rec)
 	}
 	return nil
 }
 
-func (h *Handler) handleCNAME(rs *requestState, r *dns.Msg, rec *records.Record) *dns.Msg {
+// handleCNAME answers with the local CNAME chain given by links, which must not be empty.
+// end is the local record the chain leads to, or nil when the chain leaves the local records.
+func (h *Handler) handleCNAME(rs *requestState, r *dns.Msg, links []records.Link, end *records.Record) *dns.Msg {
 	msg := new(dns.Msg)
 	msg.SetReply(r)
 	msg.RecursionAvailable = true
 
-	// Add the initial CNAME record
-	msg.Answer = append(msg.Answer, &dns.CNAME{
-		Hdr:    dns.RR_Header{Name: rs.queryName, Rrtype: dns.TypeCNAME, Class: dns.ClassINET, Ttl: DefaultTTL},
-		Target: rec.Content + ".",
-	})
+	for i, link := range links {
+		name := link.Name
+		if i == 0 {
+			// Keep the spelling of the question, link names are lower case
+			name = rs.queryName
+		}
+		msg.Answer = append(msg.Answer, cnameRR(name, link.Target))
+	}
+	target := links[len(links)-1].Target
 
-	// A CNAME question is answered by the CNAME itself, the chain is not followed
-	if rs.queryType == dns.TypeCNAME {
+	if end != nil && end.Typ == records.A {
+		// Local targets only carry A records. For any other type the chain ends
+		// here with an empty rest (NOERROR/NODATA), never with the A record.
+		if rs.queryType == dns.TypeA {
+			msg.Answer = append(msg.Answer, &dns.A{
+				Hdr: dns.RR_Header{Name: target, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: DefaultTTL},
+				A:   net.ParseIP(end.Content),
+			})
+		}
 		msg.Authoritative = true
 		return msg
-	}
-
-	// Follow CNAME chain locally
-	target := rec.Content + "."
-	for {
-		targetRec := records.Get(target)
-		if targetRec == nil {
-			break
-		}
-
-		switch targetRec.Typ {
-		case records.CNAME:
-			msg.Answer = append(msg.Answer, &dns.CNAME{
-				Hdr:    dns.RR_Header{Name: target, Rrtype: dns.TypeCNAME, Class: dns.ClassINET, Ttl: DefaultTTL},
-				Target: targetRec.Content + ".",
-			})
-			target = targetRec.Content + "."
-		case records.A:
-			// Local targets only carry A records. For any other type the chain ends
-			// here with an empty rest (NOERROR/NODATA), never with the A record.
-			if rs.queryType == dns.TypeA {
-				msg.Answer = append(msg.Answer, &dns.A{
-					Hdr: dns.RR_Header{Name: target, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: DefaultTTL},
-					A:   net.ParseIP(targetRec.Content),
-				})
-			}
-			msg.Authoritative = true
-			return msg
-		}
 	}
 
 	// If chain ends with non-local record, forward the query
@@ -207,12 +229,17 @@ func (h *Handler) handleCNAME(rs *requestState, r *dns.Msg, rec *records.Record)
 	// Keep the type of the original question, e.g. AAAA must not be answered with A
 	targetQuery.SetQuestion(target, rs.queryType)
 	response, err := h.forwarder.Forward(targetQuery)
-	if err != nil {
-		h.log.Warn("failed to forward CNAME target resolution", "error", err)
-		return msg
+	if err != nil || response == nil {
+		h.log.Warn("failed to forward CNAME target resolution", "target", target, "error", err)
+		return servfail(r)
 	}
 
+	// The result of a CNAME chain is the result for its last name (RFC 6604): take over the response code
+	// and the authority section, which holds the SOA record of a negative answer (RFC 2308).
+	// The additional section stays behind, its EDNS OPT record belongs to the upstream exchange.
+	msg.Rcode = response.Rcode
 	msg.Answer = append(msg.Answer, response.Answer...)
+	msg.Ns = append(msg.Ns, response.Ns...)
 	return msg
 }
 

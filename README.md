@@ -67,6 +67,21 @@ Example:
 Invalid lines are ignored. On loading the records resolvit will log a warning
 but continues starting.
 
+### CNAME Chains
+
+A CNAME may point to another local record or to any external name. Local CNAME records are followed
+up to a chain of 16 records.
+
+An external name is resolved by the upstream servers, and its result becomes the result of the query.
+A CNAME that points to a name that doesn't exist returns `NXDOMAIN`, with the CNAME record still in the
+answer. If the upstream servers can't be reached, the answer is `SERVFAIL`.
+
+A chain that loops or is longer than that cannot be resolved. Resolvit logs a warning for each
+affected record when the file is loaded and answers queries for these names with `SERVFAIL`:
+
+    # loops for every name below wild.example.com, because the target matches the wildcard again
+    *.wild.example.com CNAME www.wild.example.com
+
 ## Limitations
 
 Only A and CNAME records are supported for local resolution.

@@ -15,7 +15,9 @@ import (
 // Response defines a fixed DNS reply for a question.
 type Response struct {
 	Answers []dns.RR
-	Rcode   int
+	// Ns is the authority section, e.g. the SOA record of a negative answer.
+	Ns    []dns.RR
+	Rcode int
 }
 
 // DNSStub hosts UDP and TCP DNS servers on the same port.
@@ -100,6 +102,7 @@ func FixedHandler(responses map[string]Response) dns.Handler {
 				reply.Rcode = resp.Rcode
 			}
 			reply.Answer = append(reply.Answer, resp.Answers...)
+			reply.Ns = append(reply.Ns, resp.Ns...)
 		} else {
 			reply.Rcode = dns.RcodeNameError
 		}
@@ -162,6 +165,27 @@ func CNAMERecord(name string, target string) dns.RR {
 			Ttl:    60,
 		},
 		Target: NormalizeName(target),
+	}
+}
+
+// SOARecord creates the SOA record of a zone as it appears in the authority section of a negative answer.
+// minTTL is the SOA MINIMUM field, the TTL of the record itself is a standard one.
+func SOARecord(zone string, minTTL uint32) dns.RR {
+	name := NormalizeName(zone)
+	return &dns.SOA{
+		Hdr: dns.RR_Header{
+			Name:   name,
+			Rrtype: dns.TypeSOA,
+			Class:  dns.ClassINET,
+			Ttl:    60,
+		},
+		Ns:      "ns." + name,
+		Mbox:    "hostmaster." + name,
+		Serial:  1,
+		Refresh: 3600,
+		Retry:   600,
+		Expire:  86400,
+		Minttl:  minTTL,
 	}
 }
 
